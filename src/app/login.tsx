@@ -2,13 +2,13 @@ import React from 'react';
 import { useRouter } from 'expo-router';
 import { LoginScreen } from '@/screens/LoginScreen';
 
-export default function IndexScreen() {
+export default function LoginRoute() {
   const router = useRouter();
 
   return (
     <LoginScreen
       onLoginSuccess={() => {
-        router.push('/home' as unknown as Parameters<typeof router.push>[0]);
+        router.replace('/');
       }}
     />
   );
