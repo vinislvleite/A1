@@ -117,6 +117,14 @@ export function TransferScreen() {
     return Object.keys(newErrors).length === 0;
   };
 
+  const handleSwapAccounts = () => {
+    setSourceAccountId(destAccountId);
+    setDestAccountId(sourceAccountId);
+    if (errors.source || errors.dest) {
+      setErrors((prev) => ({ ...prev, source: undefined, dest: undefined }));
+    }
+  };
+
   const handleTransfer = async () => {
     if (!validate()) return;
 
@@ -301,9 +309,13 @@ export function TransferScreen() {
             </View>
 
             <View style={styles.swapIndicatorRow}>
-              <View style={styles.swapCircle}>
-                <Feather name="arrow-down" size={16} color="#60A5FA" />
-              </View>
+              <TouchableOpacity
+                style={styles.swapCircle}
+                onPress={handleSwapAccounts}
+                activeOpacity={0.7}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Feather name="repeat" size={16} color="#60A5FA" />
+              </TouchableOpacity>
             </View>
 
             <View style={styles.fieldGroup}>
@@ -347,6 +359,10 @@ export function TransferScreen() {
                 onChangeText={setDescription}
                 placeholder="Ex: Reserva de emergência, Envio"
                 placeholderTextColor="#64748B"
+                selectionColor="#60A5FA"
+                maxLength={100}
+                autoCapitalize="sentences"
+                returnKeyType="done"
               />
             </View>
           </View>
@@ -519,27 +535,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#334155',
     borderRadius: 16,
-    paddingHorizontal: 18,
-    paddingVertical: 14,
+    paddingHorizontal: 20,
+    height: 64,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 8,
     width: '100%',
   },
   boxError: {
     borderColor: '#EF4444',
   },
   currencyPrefix: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: '600',
     color: '#60A5FA',
   },
   amountInput: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: '700',
     color: '#FFFFFF',
-    minWidth: 70,
+    minWidth: 160,
     padding: 0,
   },
   errorText: {

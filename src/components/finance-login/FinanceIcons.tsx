@@ -1,7 +1,7 @@
 import React from 'react';
-import { View, StyleSheet, Text, Image } from 'react-native';
+import { View, StyleSheet, Image } from 'react-native';
 import { SymbolView } from 'expo-symbols';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Feather } from '@expo/vector-icons';
 
 interface IconProps {
   size?: number;
@@ -21,7 +21,7 @@ export const UserIcon: React.FC<IconProps> = ({ size = 20, color = '#64748B' }) 
       style={{ width: size, height: size }}
       fallback={
         <View style={[styles.fallbackBox, { width: size, height: size }]}>
-          <Text style={{ fontSize: size * 0.7, color }}>👤</Text>
+          <Feather name="user" size={size} color={color} />
         </View>
       }
     />
@@ -41,7 +41,7 @@ export const LockIcon: React.FC<IconProps> = ({ size = 20, color = '#64748B' }) 
       style={{ width: size, height: size }}
       fallback={
         <View style={[styles.fallbackBox, { width: size, height: size }]}>
-          <Text style={{ fontSize: size * 0.7, color }}>🔒</Text>
+          <Feather name="lock" size={size} color={color} />
         </View>
       }
     />
@@ -61,7 +61,7 @@ export const EyeIcon: React.FC<IconProps> = ({ size = 20, color = '#64748B' }) =
       style={{ width: size, height: size }}
       fallback={
         <View style={[styles.fallbackBox, { width: size, height: size }]}>
-          <Text style={{ fontSize: size * 0.7, color }}>👁</Text>
+          <Feather name="eye" size={size} color={color} />
         </View>
       }
     />
@@ -81,7 +81,7 @@ export const EyeOffIcon: React.FC<IconProps> = ({ size = 20, color = '#64748B' }
       style={{ width: size, height: size }}
       fallback={
         <View style={[styles.fallbackBox, { width: size, height: size }]}>
-          <Text style={{ fontSize: size * 0.7, color }}>👁‍🗨</Text>
+          <Feather name="eye-off" size={size} color={color} />
         </View>
       }
     />
@@ -101,7 +101,7 @@ export const FingerprintIcon: React.FC<IconProps> = ({ size = 24, color = '#2563
       style={{ width: size, height: size }}
       fallback={
         <View style={[styles.fallbackBox, { width: size, height: size }]}>
-          <Text style={{ fontSize: size * 0.7, color }}>👆</Text>
+          <Feather name="shield" size={size} color={color} />
         </View>
       }
     />

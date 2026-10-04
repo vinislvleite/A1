@@ -411,7 +411,8 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
   const selectedAccount = accounts.find((acc) => acc.id === accountId);
 
   const formatDateDisplay = (isoDate: string): string => {
-    const parts = isoDate.split('-');
+    const cleanDate = isoDate.split('T')[0];
+    const parts = cleanDate.split('-');
     if (parts.length === 3) {
       return `${parts[2]}/${parts[1]}/${parts[0]}`;
     }
@@ -447,7 +448,7 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
     const handleShare = async () => {
       try {
         const message = [
-          '📄 Comprovante de Transação - Orçamento Fácil',
+          'Comprovante de Transação - Orçamento Fácil',
           `Descrição: ${savedSummary.description}`,
           `Valor: ${formattedVal}`,
           `Categoria: ${savedSummary.categoryName}`,
@@ -646,6 +647,10 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
                   }}
                   placeholder="Ex: Mercado semanal"
                   placeholderTextColor="#64748B"
+                  selectionColor="#60A5FA"
+                  maxLength={100}
+                  autoCapitalize="sentences"
+                  returnKeyType="done"
                 />
               </View>
               {errors.description ? (
@@ -681,6 +686,7 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
                     placeholderTextColor="#64748B"
                     keyboardType="numeric"
                     maxLength={5}
+                    selectionColor="#60A5FA"
                   />
                 </View>
                 {errors.time ? (
@@ -789,6 +795,8 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
                   multiline
                   numberOfLines={3}
                   textAlignVertical="top"
+                  selectionColor="#60A5FA"
+                  maxLength={500}
                 />
               </View>
             </View>
@@ -1200,23 +1208,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E293B',
     borderWidth: 1,
     borderColor: '#334155',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    height: 64,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 8,
   },
   currencyPrefix: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '600',
   },
   amountInput: {
-    fontSize: 30,
+    fontSize: 32,
     fontWeight: '700',
     color: '#FFFFFF',
-    minWidth: 70,
+    minWidth: 160,
     padding: 0,
   },
   inputBox: {

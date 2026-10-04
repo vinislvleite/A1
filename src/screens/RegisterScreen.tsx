@@ -169,6 +169,11 @@ export function RegisterScreen() {
                     setName(text);
                     if (errorMessage) setErrorMessage(null);
                   }}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  maxLength={50}
+                  selectionColor="#60A5FA"
+                  returnKeyType="next"
                 />
               </View>
 
@@ -186,6 +191,9 @@ export function RegisterScreen() {
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  maxLength={100}
+                  selectionColor="#60A5FA"
+                  returnKeyType="next"
                 />
               </View>
 
@@ -201,6 +209,11 @@ export function RegisterScreen() {
                     if (errorMessage) setErrorMessage(null);
                   }}
                   secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxLength={50}
+                  selectionColor="#60A5FA"
+                  returnKeyType="next"
                 />
                 <TouchableOpacity
                   onPress={() => setShowPassword((prev) => !prev)}
@@ -225,6 +238,11 @@ export function RegisterScreen() {
                     if (errorMessage) setErrorMessage(null);
                   }}
                   secureTextEntry={!showConfirmPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  maxLength={50}
+                  selectionColor="#60A5FA"
+                  returnKeyType="done"
                 />
                 <TouchableOpacity
                   onPress={() => setShowConfirmPassword((prev) => !prev)}

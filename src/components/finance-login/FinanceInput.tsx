@@ -79,6 +79,7 @@ export const FinanceInput: React.FC<FinanceInputProps> = ({
 
         <TextInput
           ref={inputRef}
+          {...props}
           value={value}
           style={[
             styles.input,
@@ -94,11 +95,12 @@ export const FinanceInput: React.FC<FinanceInputProps> = ({
             style,
           ]}
           placeholderTextColor="#64748B"
-          secureTextEntry={isPassword && hidePassword}
+          secureTextEntry={isPassword ? hidePassword : props.secureTextEntry}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           selectionColor={primaryBlue}
-          {...props}
+          autoCapitalize={isPassword ? 'none' : props.autoCapitalize}
+          autoCorrect={isPassword ? false : props.autoCorrect}
         />
 
         {isPassword && (

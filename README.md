@@ -141,3 +141,7 @@ orcamentofacil/
 ├── package.json             # Dependências e scripts de execução
 └── tsconfig.json            # Configuração estrita do TypeScript
 ```
+
+## Easter Egg
+
+ShiroFofo dentro de src/app/index.tsx

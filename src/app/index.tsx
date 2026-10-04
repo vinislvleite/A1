@@ -2,6 +2,8 @@ import React from 'react';
 import { useRouter } from 'expo-router';
 import { LoginScreen } from '@/screens/LoginScreen';
 
+//ShiroFofo
+
 export default function IndexScreen() {
   const router = useRouter();
 

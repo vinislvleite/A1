@@ -42,6 +42,7 @@ export default function RootLayout() {
         <Stack.Screen name="transaction-detail" />
         <Stack.Screen name="data-cleanup" />
         <Stack.Screen name="privacy-policy" />
+        <Stack.Screen name="delete-transaction" />
       </Stack>
 
 

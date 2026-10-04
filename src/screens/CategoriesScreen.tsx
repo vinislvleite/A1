@@ -293,7 +293,10 @@ export function CategoriesScreen() {
                   onChangeText={setCategoryName}
                   placeholder="Ex: Assinaturas, Mercado"
                   placeholderTextColor="#64748B"
-                  autoFocus
+                  maxLength={30}
+                  autoCapitalize="words"
+                  selectionColor="#60A5FA"
+                  returnKeyType="done"
                 />
               </View>
             </View>

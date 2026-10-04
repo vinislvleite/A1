@@ -60,7 +60,7 @@ export class NotificationService implements INotificationService {
       NotificationService.notifiedThresholds.add(exceededKey);
       NotificationService.notifiedThresholds.add(warningKey);
 
-      const title = '⚠️ Limite de Orçamento Excedido!';
+      const title = 'Limite de Orçamento Excedido!';
       const message = `Você ultrapassou o limite de ${params.categoryName} neste mês. Total gasto: ${params.totalSpent.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} de ${params.limitValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`;
 
       await this.sendLocalNotification({
@@ -75,7 +75,7 @@ export class NotificationService implements INotificationService {
     if (percentage >= 90 && percentage < 100 && !NotificationService.notifiedThresholds.has(warningKey)) {
       NotificationService.notifiedThresholds.add(warningKey);
 
-      const title = '⚡ Alerta de Orçamento (90%)';
+      const title = 'Alerta de Orçamento (90%)';
       const message = `Atenção: você atingiu ${percentage.toFixed(0)}% do orçamento estipulado para ${params.categoryName} neste mês.`;
 
       await this.sendLocalNotification({

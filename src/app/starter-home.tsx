@@ -47,7 +47,7 @@ export default function HomeScreen() {
         <ThemedView type="backgroundElement" style={styles.stepContainer}>
           <Link href="/login" style={styles.loginLink}>
             <ThemedText type="smallBold" style={{ color: '#00D09E' }}>
-              🔐 Testar Tela de Login (/login) →
+              Testar Tela de Login (/login) →
             </ThemedText>
           </Link>
           <HintRow

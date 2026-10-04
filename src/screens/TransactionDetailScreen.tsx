@@ -20,6 +20,7 @@ import { AccountRepository } from '../data/repositories/AccountRepository';
 import { Transaction } from '../domain/entities/Transaction';
 import { Category } from '../domain/entities/Category';
 import { Account } from '../domain/entities/Account';
+import { DeleteTransactionModal } from '../components/DeleteTransactionModal';
 
 export interface TransactionDetailScreenProps {
   id: string;
@@ -49,6 +50,7 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
   const [account, setAccount] = useState<Account | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showImageZoom, setShowImageZoom] = useState(false);
 
   const transactionRepo = new TransactionRepository();
@@ -88,27 +90,24 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
   );
 
   const handleDelete = () => {
-    Alert.alert(
-      'Excluir Transação',
-      'Tem certeza de que deseja excluir permanentemente esta transação?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Excluir',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setIsDeleting(true);
-              await transactionRepo.delete(id);
-              router.back();
-            } catch {
-              setIsDeleting(false);
-              Alert.alert('Erro', 'Falha ao excluir transação.');
-            }
-          },
-        },
-      ]
-    );
+    setShowDeleteModal(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    try {
+      setIsDeleting(true);
+      await transactionRepo.delete(id);
+      setShowDeleteModal(false);
+      router.back();
+    } catch {
+      setIsDeleting(false);
+      Alert.alert('Erro', 'Falha ao excluir transação.');
+    }
+  };
+
+  const handleCancelDelete = () => {
+    if (isDeleting) return;
+    setShowDeleteModal(false);
   };
 
   const handleShare = async () => {
@@ -117,7 +116,7 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
       const isIncome = transaction.type === 'receita';
       const formattedVal = `${isIncome ? '+' : '-'} ${formatCurrency(transaction.value)}`;
       const message = [
-        '📄 Detalhes da Transação - Orçamento Fácil',
+        'Detalhes da Transação - Orçamento Fácil',
         `Descrição: ${transaction.description}`,
         `Valor: ${formattedVal}`,
         `Categoria: ${category?.name ?? 'Geral'}`,
@@ -378,6 +377,26 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
           </View>
         </Modal>
       ) : null}
+
+      <DeleteTransactionModal
+        visible={showDeleteModal}
+        onCancel={handleCancelDelete}
+        onConfirm={handleConfirmDelete}
+        isLoading={isDeleting}
+        transaction={
+          transaction
+            ? {
+                id: transaction.id,
+                description: transaction.description,
+                value: transaction.value,
+                type: transaction.type,
+                accountName: account?.name,
+                categoryName: category?.name,
+                date: transaction.date,
+              }
+            : null
+        }
+      />
     </SafeAreaView>
   );
 }

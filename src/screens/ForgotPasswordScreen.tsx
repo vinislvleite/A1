@@ -59,6 +59,7 @@ export function ForgotPasswordScreen() {
         return;
       }
 
+      setEmail(cleanEmail);
       setUserName(user.name);
       setStep('verify');
     } catch (error: unknown) {
@@ -252,6 +253,9 @@ export function ForgotPasswordScreen() {
                   keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
+                  maxLength={100}
+                  selectionColor="#60A5FA"
+                  returnKeyType="done"
                 />
               </View>
 
@@ -307,6 +311,9 @@ export function ForgotPasswordScreen() {
                   }}
                   autoCapitalize="words"
                   autoCorrect={false}
+                  maxLength={60}
+                  selectionColor="#60A5FA"
+                  returnKeyType="done"
                 />
               </View>
 
@@ -344,6 +351,9 @@ export function ForgotPasswordScreen() {
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  maxLength={50}
+                  selectionColor="#60A5FA"
+                  returnKeyType="next"
                 />
                 <TouchableOpacity
                   onPress={() => setShowPassword((prev) => !prev)}
@@ -371,6 +381,9 @@ export function ForgotPasswordScreen() {
                   secureTextEntry={!showConfirmPassword}
                   autoCapitalize="none"
                   autoCorrect={false}
+                  maxLength={50}
+                  selectionColor="#60A5FA"
+                  returnKeyType="done"
                 />
                 <TouchableOpacity
                   onPress={() => setShowConfirmPassword((prev) => !prev)}

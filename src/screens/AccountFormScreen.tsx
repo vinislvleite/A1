@@ -254,6 +254,10 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
                 }}
                 placeholder="Ex: Nubank, Itaú, Carteira"
                 placeholderTextColor="#64748B"
+                selectionColor="#60A5FA"
+                maxLength={30}
+                autoCapitalize="words"
+                returnKeyType="done"
               />
             </View>
             {errors.name ? (
@@ -517,24 +521,24 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E293B',
     borderWidth: 1,
     borderColor: '#334155',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    height: 64,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 8,
   },
   currencyPrefix: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: '600',
     color: '#60A5FA',
   },
   amountInput: {
-    fontSize: 26,
+    fontSize: 32,
     fontWeight: '700',
     color: '#FFFFFF',
-    minWidth: 70,
+    minWidth: 160,
     padding: 0,
   },
   paletteRow: {

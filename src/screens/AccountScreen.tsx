@@ -163,7 +163,10 @@ export function AccountScreen() {
             <Text style={styles.sectionTitle}>RESUMO FINANCEIRO</Text>
 
             <View style={styles.infoCard}>
-              <View style={styles.infoRow}>
+              <TouchableOpacity
+                style={styles.infoRow}
+                activeOpacity={0.7}
+                onPress={() => router.push('/accounts' as unknown as Parameters<typeof router.push>[0])}>
                 <View style={styles.infoIconWrapper}>
                   <Feather name="credit-card" size={18} color="#10B981" />
                 </View>
@@ -171,7 +174,8 @@ export function AccountScreen() {
                   <Text style={styles.infoLabel}>Contas Bancárias e Carteiras</Text>
                   <Text style={styles.infoValue}>{accountsCount} {accountsCount === 1 ? 'conta cadastrada' : 'contas cadastradas'}</Text>
                 </View>
-              </View>
+                <Feather name="chevron-right" size={16} color="#64748B" />
+              </TouchableOpacity>
 
               <View style={styles.cardDivider} />
 

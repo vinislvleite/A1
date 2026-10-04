@@ -28,6 +28,7 @@ import {
 } from '../domain/entities/Transaction';
 import { Category } from '../domain/entities/Category';
 import { Account } from '../domain/entities/Account';
+import { DeleteTransactionModal } from '../components/DeleteTransactionModal';
 
 const PAGE_SIZE = 20;
 
@@ -152,6 +153,8 @@ export function TransactionsListScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [transactionToDelete, setTransactionToDelete] = useState<EnrichedTransaction | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const transactionRepo = useMemo(() => new TransactionRepository(), []);
   const categoryRepo = useMemo(() => new CategoryRepository(), []);
@@ -323,26 +326,27 @@ export function TransactionsListScreen() {
   };
 
   const handleDelete = (item: EnrichedTransaction) => {
-    Alert.alert(
-      'Excluir transação',
-      `Deseja excluir "${item.description}"? Esta ação não pode ser desfeita.`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Excluir',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await transactionRepo.delete(item.id);
-              setItems((prev) => prev.filter((t) => t.id !== item.id));
-            } catch (error: unknown) {
-              const message = error instanceof Error ? error.message : 'Erro ao excluir transação.';
-              Alert.alert('Erro', message);
-            }
-          },
-        },
-      ]
-    );
+    setTransactionToDelete(item);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!transactionToDelete) return;
+    try {
+      setIsDeleting(true);
+      await transactionRepo.delete(transactionToDelete.id);
+      setItems((prev) => prev.filter((t) => t.id !== transactionToDelete.id));
+      setTransactionToDelete(null);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Erro ao excluir transação.';
+      Alert.alert('Erro', message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleCancelDelete = () => {
+    if (isDeleting) return;
+    setTransactionToDelete(null);
   };
 
   const renderItem = ({ item, index }: ListRenderItemInfo<EnrichedTransaction>) => {
@@ -471,6 +475,10 @@ export function TransactionsListScreen() {
             placeholderTextColor="#64748B"
             value={searchInput}
             onChangeText={setSearchInput}
+            selectionColor="#60A5FA"
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
           />
           {searchInput ? (
             <TouchableOpacity onPress={() => setSearchInput('')}>
@@ -662,6 +670,7 @@ export function TransactionsListScreen() {
                       placeholder="Mínimo"
                       placeholderTextColor="#64748B"
                       keyboardType="numeric"
+                      selectionColor="#60A5FA"
                     />
                   </View>
                   <Text style={styles.rangeDivider}>até</Text>
@@ -674,6 +683,7 @@ export function TransactionsListScreen() {
                       placeholder="Máximo"
                       placeholderTextColor="#64748B"
                       keyboardType="numeric"
+                      selectionColor="#60A5FA"
                     />
                   </View>
                 </View>
@@ -694,6 +704,26 @@ export function TransactionsListScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <DeleteTransactionModal
+        visible={transactionToDelete !== null}
+        onCancel={handleCancelDelete}
+        onConfirm={handleConfirmDelete}
+        isLoading={isDeleting}
+        transaction={
+          transactionToDelete
+            ? {
+                id: transactionToDelete.id,
+                description: transactionToDelete.description,
+                value: transactionToDelete.amount,
+                type: transactionToDelete.type,
+                accountName: transactionToDelete.accountName,
+                categoryName: transactionToDelete.categoryName,
+                date: transactionToDelete.date,
+              }
+            : null
+        }
+      />
     </SafeAreaView>
   );
 }
