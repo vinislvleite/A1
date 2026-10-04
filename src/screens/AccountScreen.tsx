@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -16,6 +15,7 @@ import { AuthService } from '../services/AuthService';
 import { UserRepository } from '../data/repositories/UserRepository';
 import { AccountRepository } from '../data/repositories/AccountRepository';
 import { User } from '../domain/entities/User';
+import { LogoutModal } from '../components/LogoutModal';
 
 export function AccountScreen() {
   const [user, setUser] = useState<User | null>(null);
@@ -65,22 +65,22 @@ export function AccountScreen() {
     }, [loadUserData])
   );
 
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   const handleLogout = () => {
-    Alert.alert(
-      'Deslogar',
-      'Deseja realmente sair da sua conta?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Deslogar',
-          style: 'destructive',
-          onPress: async () => {
-            await authService.logout();
-            router.replace('/login' as unknown as Parameters<typeof router.replace>[0]);
-          },
-        },
-      ]
-    );
+    setShowLogoutModal(true);
+  };
+
+  const confirmLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await authService.logout();
+      setShowLogoutModal(false);
+      router.replace('/login' as unknown as Parameters<typeof router.replace>[0]);
+    } catch {
+      setIsLoggingOut(false);
+    }
   };
 
   const formatDate = (isoString?: string): string => {
@@ -187,6 +187,60 @@ export function AccountScreen() {
             </View>
           </View>
 
+          <View style={styles.sectionGroup}>
+            <Text style={styles.sectionTitle}>GERENCIAMENTO</Text>
+            <View style={styles.infoCard}>
+              <TouchableOpacity
+                style={styles.infoRow}
+                activeOpacity={0.7}
+                onPress={() => router.push('/categories' as unknown as Parameters<typeof router.push>[0])}>
+                <View style={styles.infoIconWrapper}>
+                  <Feather name="tag" size={18} color="#F59E0B" />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Categorias</Text>
+                  <Text style={styles.infoValue}>Personalizar categorias, cores e ícones</Text>
+                </View>
+                <Feather name="chevron-right" size={16} color="#64748B" />
+              </TouchableOpacity>
+
+              <View style={styles.cardDivider} />
+
+              <TouchableOpacity
+                style={styles.infoRow}
+                activeOpacity={0.7}
+                onPress={() => router.push('/data-cleanup' as unknown as Parameters<typeof router.push>[0])}>
+                <View style={styles.infoIconWrapper}>
+                  <Feather name="trash-2" size={18} color="#EF4444" />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Limpeza de Dados</Text>
+                  <Text style={styles.infoValue}>Excluir transações antigas ou em lote</Text>
+                </View>
+                <Feather name="chevron-right" size={16} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.sectionGroup}>
+            <Text style={styles.sectionTitle}>SEGURANÇA E PRIVACIDADE</Text>
+            <View style={styles.infoCard}>
+              <TouchableOpacity
+                style={styles.infoRow}
+                activeOpacity={0.7}
+                onPress={() => router.push('/privacy-policy' as unknown as Parameters<typeof router.push>[0])}>
+                <View style={styles.infoIconWrapper}>
+                  <Feather name="shield" size={18} color="#10B981" />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoLabel}>Privacidade e Proteção</Text>
+                  <Text style={styles.infoValue}>Armazenamento 100% offline e criptografia</Text>
+                </View>
+                <Feather name="chevron-right" size={16} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
           <View style={styles.actionSection}>
             <TouchableOpacity
               style={styles.btnLogout}
@@ -198,6 +252,13 @@ export function AccountScreen() {
           </View>
         </ScrollView>
       )}
+
+      <LogoutModal
+        visible={showLogoutModal}
+        onCancel={() => setShowLogoutModal(false)}
+        onConfirm={confirmLogout}
+        isLoading={isLoggingOut}
+      />
     </SafeAreaView>
   );
 }

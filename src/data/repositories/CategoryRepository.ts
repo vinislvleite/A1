@@ -137,6 +137,20 @@ export class CategoryRepository {
     }
   }
 
+  public async countTransactionsByCategoryId(categoryId: string): Promise<number> {
+    try {
+      const result = await this.dbManager.executeQuery(
+        'SELECT COUNT(*) as count FROM transactions WHERE category_id = ?;',
+        [categoryId]
+      );
+      if (result.rows.length === 0) return 0;
+      return (result.rows.item(0) as { count: number }).count;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Erro ao contar transações da categoria [${categoryId}]: ${message}`);
+    }
+  }
+
   public async seedDefaultCategories(): Promise<void> {
     const existing = await this.findAll();
     if (existing.length > 0) {

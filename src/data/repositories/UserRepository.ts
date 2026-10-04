@@ -114,4 +114,18 @@ export class UserRepository {
 
     return user;
   }
+
+  public async updatePassword(userId: string, newPassword: string): Promise<boolean> {
+    try {
+      const newHash = await this.hashPassword(newPassword);
+      await this.dbManager.executeQuery(
+        'UPDATE users SET password_hash = ? WHERE id = ?;',
+        [newHash, userId]
+      );
+      return true;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Erro ao atualizar senha do usuário [${userId}]: ${message}`);
+    }
+  }
 }

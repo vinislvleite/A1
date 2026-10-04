@@ -42,11 +42,16 @@ export class CalculateBudgetProgressUseCase {
     this.transactionRepository = transactionRepository;
   }
 
-  public async execute(month: number, year: number): Promise<MonthlyBudgetProgressSummary> {
+  public async execute(
+    month: number,
+    year: number,
+    includeAllCategories: boolean = false
+  ): Promise<MonthlyBudgetProgressSummary> {
     try {
       const budgets = await this.budgetRepository.findAllByMonth(month, year);
       const categories = await this.categoryRepository.findAll();
       const categoryMap = new Map(categories.map((cat) => [cat.id, cat]));
+      const budgetMap = new Map(budgets.map((b) => [b.category_id, b]));
 
       const startMonthStr = String(month).padStart(2, '0');
       const startDate = `${year}-${startMonthStr}-01T00:00:00.000Z`;
@@ -54,44 +59,67 @@ export class CalculateBudgetProgressUseCase {
       const lastDayStr = String(lastDay).padStart(2, '0');
       const endDate = `${year}-${startMonthStr}-${lastDayStr}T23:59:59.999Z`;
 
-      const monthlyTransactions = await this.transactionRepository.findAll({
-        type: 'despesa',
-        status: 'confirmada',
-        startDate,
-        endDate,
-      });
+      const [monthlyTransactions, allConfirmedExpenses] = await Promise.all([
+        this.transactionRepository.findAll({
+          type: 'despesa',
+          status: 'confirmada',
+          startDate,
+          endDate,
+        }),
+        this.transactionRepository.findAll({
+          type: 'despesa',
+          status: 'confirmada',
+        }),
+      ]);
 
       const spentByCategory = new Map<string, number>();
+      const countedTxIds = new Set<string>();
+
       for (const tx of monthlyTransactions) {
+        countedTxIds.add(tx.id);
         const currentSpent = spentByCategory.get(tx.category_id) ?? 0;
         spentByCategory.set(tx.category_id, currentSpent + tx.value);
+      }
+
+      for (const tx of allConfirmedExpenses) {
+        if (tx.is_recurring && !countedTxIds.has(tx.id) && tx.date <= endDate) {
+          const currentSpent = spentByCategory.get(tx.category_id) ?? 0;
+          spentByCategory.set(tx.category_id, currentSpent + tx.value);
+        }
       }
 
       let totalBudgeted = 0;
       let totalSpent = 0;
       const categoryProgressList: CategoryBudgetProgress[] = [];
 
-      for (const budget of budgets) {
-        const category = categoryMap.get(budget.category_id);
-        const categoryName = category ? category.name : 'Desconhecida';
-        const categoryColor = category ? category.color : '#6B7280';
-        const categoryIcon = category ? category.icon : 'grid';
+      const targetCategories = includeAllCategories
+        ? categories
+        : budgets
+            .map((b) => categoryMap.get(b.category_id))
+            .filter((c): c is NonNullable<typeof c> => Boolean(c));
 
-        const spentValue = spentByCategory.get(budget.category_id) ?? 0;
-        const limitValue = budget.limit_value;
-        const remainingValue = limitValue - spentValue;
-        const percentageSpent = limitValue > 0 ? Number(((spentValue / limitValue) * 100).toFixed(2)) : 0;
-        const isWarning = percentageSpent >= 90 && percentageSpent < 100;
-        const isExceeded = spentValue > limitValue;
+      for (const category of targetCategories) {
+        const budget = budgetMap.get(category.id);
+        const categoryName = category.name;
+        const categoryColor = category.color || '#6B7280';
+        const categoryIcon = category.icon || 'grid';
+
+        const spentValue = spentByCategory.get(category.id) ?? 0;
+        const limitValue = budget ? budget.limit_value : 0;
+        const remainingValue = limitValue > 0 ? limitValue - spentValue : 0;
+        const percentageSpent =
+          limitValue > 0 ? Number(((spentValue / limitValue) * 100).toFixed(2)) : 0;
+        const isWarning = limitValue > 0 && percentageSpent >= 90 && percentageSpent <= 100;
+        const isExceeded = limitValue > 0 && spentValue > limitValue;
 
         categoryProgressList.push({
-          budgetId: budget.id,
-          categoryId: budget.category_id,
+          budgetId: budget ? budget.id : '',
+          categoryId: category.id,
           categoryName,
           categoryColor,
           categoryIcon,
-          month: budget.month,
-          year: budget.year,
+          month,
+          year,
           limitValue,
           spentValue,
           remainingValue,
@@ -100,13 +128,14 @@ export class CalculateBudgetProgressUseCase {
           isExceeded,
         });
 
-        totalBudgeted += limitValue;
-        totalSpent += spentValue;
+        if (budget) {
+          totalBudgeted += limitValue;
+          totalSpent += spentValue;
+        }
       }
 
-      const overallPercentage = totalBudgeted > 0
-        ? Number(((totalSpent / totalBudgeted) * 100).toFixed(2))
-        : 0;
+      const overallPercentage =
+        totalBudgeted > 0 ? Number(((totalSpent / totalBudgeted) * 100).toFixed(2)) : 0;
 
       return {
         month,

@@ -42,3 +42,15 @@ example
 # generated native folders
 /ios
 /android
+
+# tests & coverage
+coverage/
+test/
+tests/
+__tests__/
+*.test.*
+*.spec.*
+jest.config.*
+jest.setup.*
+docs/
+

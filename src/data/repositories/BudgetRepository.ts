@@ -170,4 +170,23 @@ export class BudgetRepository {
       throw new Error(`Erro ao excluir orçamento [${id}]: ${message}`);
     }
   }
+
+  public async setCategoryBudget(
+    categoryId: string,
+    month: number,
+    year: number,
+    limitValue: number
+  ): Promise<Budget> {
+    const existing = await this.findByCategoryAndPeriod(categoryId, month, year, 'mensal');
+    if (existing) {
+      return this.update(existing.id, { limit_value: limitValue });
+    }
+    return this.create({
+      category_id: categoryId,
+      month,
+      year,
+      limit_value: limitValue,
+      period_type: 'mensal',
+    });
+  }
 }

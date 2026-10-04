@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Text } from 'react-native';
+import { View, StyleSheet, Text, Image } from 'react-native';
 import { SymbolView } from 'expo-symbols';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -108,20 +108,26 @@ export const FingerprintIcon: React.FC<IconProps> = ({ size = 24, color = '#2563
   );
 };
 
-import Logo from '@/assets/images/logo.svg';
-
-export const AppLogoIcon: React.FC<{ size?: number }> = ({ size = 64 }) => {
+export const AppLogoIcon: React.FC<{ size?: number; borderRadius?: number }> = ({
+  size = 72,
+  borderRadius = 18,
+}) => {
   return (
-    <LinearGradient
-      colors={['#60A5FA', '#1D4ED8']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
+    <View
       style={[
         styles.logoContainer,
-        { width: size, height: size, borderRadius: size / 2 },
+        {
+          width: size,
+          height: size,
+          borderRadius,
+        },
       ]}>
-      <Logo width={size * 0.58} height={size * 0.58} />
-    </LinearGradient>
+      <Image
+        source={require('@/assets/images/icon.png')}
+        style={{ width: size, height: size, borderRadius }}
+        resizeMode="contain"
+      />
+    </View>
   );
 };
 
@@ -133,10 +139,6 @@ const styles = StyleSheet.create({
   logoContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#1D4ED8',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    elevation: 10,
+    overflow: 'hidden',
   },
 });

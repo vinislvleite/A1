@@ -88,6 +88,7 @@ export const FinanceButton: React.FC<FinanceButtonProps> = ({
       {...props}>
       {loading ? (
         <ActivityIndicator
+          testID="finance-button-loading"
           size="small"
           color={variant === 'outline' ? '#2563EB' : '#FFFFFF'}
         />

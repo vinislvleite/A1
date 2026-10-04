@@ -1,3 +1,4 @@
+import { DatabaseManager } from './SQLiteDatabase';
 import { UserRepository } from '../repositories/UserRepository';
 import { AccountRepository } from '../repositories/AccountRepository';
 import { CategoryRepository } from '../repositories/CategoryRepository';
@@ -6,24 +7,33 @@ import { BudgetRepository } from '../repositories/BudgetRepository';
 import { GoalRepository } from '../repositories/GoalRepository';
 import { CreateTransactionDTO } from '../../domain/entities/Transaction';
 
-export async function seedDatabase(): Promise<boolean> {
-  const userRepository = new UserRepository();
-  const accountRepository = new AccountRepository();
-  const categoryRepository = new CategoryRepository();
-  const transactionRepository = new TransactionRepository();
-  const budgetRepository = new BudgetRepository();
-  const goalRepository = new GoalRepository();
+export async function seedDemoUser(): Promise<boolean> {
+  const dbManager = DatabaseManager.getInstance();
+  const previousUser = dbManager.getActiveUserId();
+  const userRepository = new UserRepository(dbManager);
 
-  const existingUser = await userRepository.findByEmail('teste@orcamentofacil.com');
-  if (existingUser) {
+  let user = await userRepository.findByEmail('teste@orcamentofacil.com');
+  if (!user) {
+    user = await userRepository.createUser({
+      name: 'Vinicius Leite',
+      email: 'teste@orcamentofacil.com',
+      password: 'Teste123!',
+    });
+  }
+
+  await dbManager.setActiveUser(user.id);
+
+  const accountRepository = new AccountRepository(dbManager);
+  const existingAccounts = await accountRepository.findAll();
+  if (existingAccounts.length > 0) {
+    await dbManager.setActiveUser(previousUser);
     return false;
   }
 
-  const user = await userRepository.createUser({
-    name: 'Vinicius Leite',
-    email: 'teste@orcamentofacil.com',
-    password: 'Teste123!',
-  });
+  const categoryRepository = new CategoryRepository(dbManager);
+  const transactionRepository = new TransactionRepository(dbManager);
+  const budgetRepository = new BudgetRepository(dbManager);
+  const goalRepository = new GoalRepository(dbManager);
 
   const contaCorrente = await accountRepository.create({
     name: 'Conta Corrente',
@@ -468,5 +478,10 @@ export async function seedDatabase(): Promise<boolean> {
     current_value: 850.0,
   });
 
+  await dbManager.setActiveUser(previousUser);
   return true;
+}
+
+export async function seedDatabase(): Promise<boolean> {
+  return seedDemoUser();
 }

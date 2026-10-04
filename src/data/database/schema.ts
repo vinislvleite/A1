@@ -77,6 +77,16 @@ CREATE TABLE IF NOT EXISTS goals (
 );
 `;
 
+export const CREATE_SYSTEM_LOGS_TABLE = `
+CREATE TABLE IF NOT EXISTS system_logs (
+  id TEXT PRIMARY KEY,
+  level TEXT NOT NULL CHECK(level IN ('CRITICAL', 'SECURITY')),
+  action TEXT NOT NULL,
+  message TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+`;
+
 export const CREATE_MIGRATIONS_TABLE = `
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version INTEGER PRIMARY KEY,

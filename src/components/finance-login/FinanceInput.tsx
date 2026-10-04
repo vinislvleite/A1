@@ -103,6 +103,7 @@ export const FinanceInput: React.FC<FinanceInputProps> = ({
 
         {isPassword && (
           <TouchableOpacity
+            testID="toggle-password-visibility"
             style={styles.rightIconButton}
             onPress={() => setHidePassword((prev) => !prev)}
             activeOpacity={0.7}

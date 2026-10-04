@@ -4,11 +4,13 @@ import {
   CreateTransactionDTO,
   UpdateTransactionDTO,
   TransactionFilter,
+  TransactionSortOptions,
   PaginatedResult,
 } from '../../domain/entities/Transaction';
 import { generateUUID } from '../../utils/uuid';
 import { CategoryRepository } from './CategoryRepository';
 import { AccountRepository } from './AccountRepository';
+import { LogService } from '../../services/LogService';
 
 
 interface TransactionRow {
@@ -99,6 +101,22 @@ export class TransactionRepository {
       params.push(filter.categoryId);
     }
 
+    if (filter.categoryIds && filter.categoryIds.length > 0) {
+      const placeholders = filter.categoryIds.map(() => '?').join(', ');
+      conditions.push(`category_id IN (${placeholders})`);
+      params.push(...filter.categoryIds);
+    }
+
+    if (filter.minValue !== undefined) {
+      conditions.push('value >= ?');
+      params.push(filter.minValue);
+    }
+
+    if (filter.maxValue !== undefined) {
+      conditions.push('value <= ?');
+      params.push(filter.maxValue);
+    }
+
     if (filter.type) {
       conditions.push('type = ?');
       params.push(filter.type);
@@ -179,6 +197,7 @@ export class TransactionRepository {
       return created;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      await LogService.getInstance().logCriticalError('TRANSACTION_CREATE_FAILED', message);
       throw new Error(`Erro ao criar transação: ${message}`);
     }
   }
@@ -237,7 +256,8 @@ export class TransactionRepository {
   public async findPaginated(
     page: number,
     limit: number,
-    filter?: TransactionFilter
+    filter?: TransactionFilter,
+    sort?: TransactionSortOptions
   ): Promise<PaginatedResult<Transaction>> {
     const safePage = Math.max(1, page);
     const safeLimit = Math.max(1, limit);
@@ -250,13 +270,23 @@ export class TransactionRepository {
       const countResult = await this.dbManager.executeQuery(countSql, params);
       const total = (countResult.rows.item(0) as CountRow).count;
 
+      const direction = sort?.direction === 'ASC' ? 'ASC' : 'DESC';
+      let orderBySql = `date ${direction}, created_at ${direction}`;
+      if (sort?.field === 'value') {
+        orderBySql = `value ${direction}`;
+      } else if (sort?.field === 'category') {
+        orderBySql = `category_id ${direction}`;
+      } else if (sort?.field === 'date') {
+        orderBySql = `date ${direction}, created_at ${direction}`;
+      }
+
       const dataSql = `
         SELECT id, account_id, category_id, value, type, description, date,
                is_recurring, recurrence_day, tags, notes, attachment_uri,
                status, created_at, updated_at
         FROM transactions
         ${whereSql}
-        ORDER BY date DESC, created_at DESC
+        ORDER BY ${orderBySql}
         LIMIT ? OFFSET ?;
       `;
 
@@ -355,6 +385,7 @@ export class TransactionRepository {
       return updated;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      await LogService.getInstance().logCriticalError('TRANSACTION_UPDATE_FAILED', message);
       throw new Error(`Erro ao atualizar transação [${id}]: ${message}`);
     }
   }
@@ -370,8 +401,18 @@ export class TransactionRepository {
       await this.dbManager.executeQuery('DELETE FROM transactions WHERE id = ?;', [id]);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      await LogService.getInstance().logCriticalError('TRANSACTION_DELETE_FAILED', message);
       throw new Error(`Erro ao excluir transação [${id}]: ${message}`);
     }
+  }
+
+  public async deleteMany(ids: string[]): Promise<number> {
+    let deletedCount = 0;
+    for (const id of ids) {
+      await this.delete(id);
+      deletedCount++;
+    }
+    return deletedCount;
   }
 
   public async findByAccountId(accountId: string): Promise<Transaction[]> {
@@ -442,6 +483,83 @@ export class TransactionRepository {
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Erro ao calcular totais agregados por conta: ${message}`);
+    }
+  }
+
+  public async transfer(data: {
+    sourceAccountId: string;
+    destinationAccountId: string;
+    value: number;
+    date: string;
+    description?: string;
+  }): Promise<{ sourceTransaction: Transaction; destinationTransaction: Transaction }> {
+    if (data.sourceAccountId === data.destinationAccountId) {
+      throw new Error('A conta de origem e a de destino não podem ser iguais.');
+    }
+
+    if (data.value <= 0) {
+      throw new Error('O valor da transferência deve ser maior que zero.');
+    }
+
+    const sourceAccount = await this.accountRepository.findById(data.sourceAccountId);
+    if (!sourceAccount) {
+      throw new Error('Conta de origem não encontrada.');
+    }
+
+    const destAccount = await this.accountRepository.findById(data.destinationAccountId);
+    if (!destAccount) {
+      throw new Error('Conta de destino não encontrada.');
+    }
+
+    const categories = await this.categoryRepository.findAll();
+    const defaultCat =
+      categories.find(
+        (c) =>
+          c.name.toLowerCase().includes('outros') ||
+          c.name.toLowerCase().includes('serviços')
+      ) ?? categories[0];
+
+    if (!defaultCat) {
+      throw new Error('Nenhuma categoria encontrada para associar à transferência.');
+    }
+
+    const desc = data.description?.trim();
+    const sourceDesc = desc ? `Transferência: ${desc}` : `Transferência para ${destAccount.name}`;
+    const destDesc = desc ? `Transferência recebida: ${desc}` : `Transferência de ${sourceAccount.name}`;
+
+    await this.dbManager.executeQuery('BEGIN TRANSACTION;');
+    try {
+      const sourceTx = await this.create({
+        account_id: data.sourceAccountId,
+        category_id: defaultCat.id,
+        value: data.value,
+        type: 'despesa',
+        description: sourceDesc,
+        date: data.date,
+        is_recurring: false,
+        tags: ['transferencia', data.destinationAccountId],
+        status: 'confirmada',
+      });
+
+      const destTx = await this.create({
+        account_id: data.destinationAccountId,
+        category_id: defaultCat.id,
+        value: data.value,
+        type: 'receita',
+        description: destDesc,
+        date: data.date,
+        is_recurring: false,
+        tags: ['transferencia', data.sourceAccountId],
+        status: 'confirmada',
+      });
+
+      await this.dbManager.executeQuery('COMMIT;');
+      return { sourceTransaction: sourceTx, destinationTransaction: destTx };
+    } catch (error: unknown) {
+      await this.dbManager.executeQuery('ROLLBACK;');
+      const message = error instanceof Error ? error.message : String(error);
+      await LogService.getInstance().logCriticalError('TRANSACTION_TRANSFER_FAILED', message);
+      throw new Error(`Falha ao realizar transferência atômica: ${message}`);
     }
   }
 }

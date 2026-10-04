@@ -1,6 +1,7 @@
 import { DatabaseManager } from '../database/SQLiteDatabase';
 import { Account, CreateAccountDTO, UpdateAccountDTO } from '../../domain/entities/Account';
 import { generateUUID } from '../../utils/uuid';
+import { LogService } from '../../services/LogService';
 
 interface AccountRow {
   id: string;
@@ -38,6 +39,7 @@ export class AccountRepository {
       return created;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      await LogService.getInstance().logCriticalError('ACCOUNT_CREATE_FAILED', message);
       throw new Error(`Erro ao criar conta: ${message}`);
     }
   }
@@ -66,6 +68,7 @@ export class AccountRepository {
       };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      await LogService.getInstance().logCriticalError('ACCOUNT_FIND_BY_ID_FAILED', message);
       throw new Error(`Erro ao buscar conta por ID [${id}]: ${message}`);
     }
   }
@@ -94,6 +97,7 @@ export class AccountRepository {
       return accounts;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      await LogService.getInstance().logCriticalError('ACCOUNT_FIND_ALL_FAILED', message);
       throw new Error(`Erro ao listar contas: ${message}`);
     }
   }
@@ -126,6 +130,7 @@ export class AccountRepository {
       return updated;
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      await LogService.getInstance().logCriticalError('ACCOUNT_UPDATE_FAILED', message);
       throw new Error(`Erro ao atualizar conta [${id}]: ${message}`);
     }
   }
@@ -140,7 +145,54 @@ export class AccountRepository {
       await this.dbManager.executeQuery('DELETE FROM accounts WHERE id = ?;', [id]);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      await LogService.getInstance().logCriticalError('ACCOUNT_DELETE_FAILED', message);
       throw new Error(`Erro ao excluir conta [${id}]: ${message}`);
+    }
+  }
+
+  public async adjustBalance(accountId: string, newBalance: number): Promise<Account> {
+    const existing = await this.findById(accountId);
+    if (!existing) {
+      throw new Error(`Conta não encontrada com ID: ${accountId}`);
+    }
+
+    try {
+      const totalsResult = await this.dbManager.executeQuery(
+        `SELECT
+           SUM(CASE WHEN type = 'receita' AND status = 'confirmada' THEN value ELSE 0 END) AS total_income,
+           SUM(CASE WHEN type = 'despesa' AND status = 'confirmada' THEN value ELSE 0 END) AS total_expense
+         FROM transactions
+         WHERE account_id = ?;`,
+        [accountId]
+      );
+
+      let totalIncome = 0;
+      let totalExpense = 0;
+      if (totalsResult.rows.length > 0) {
+        const row = totalsResult.rows.item(0) as { total_income: number | null; total_expense: number | null };
+        totalIncome = row.total_income ?? 0;
+        totalExpense = row.total_expense ?? 0;
+      }
+
+      const calculatedInitialBalance = newBalance - (totalIncome - totalExpense);
+      const now = new Date().toISOString();
+
+      await this.dbManager.executeQuery(
+        `UPDATE accounts
+         SET initial_balance = ?, updated_at = ?
+         WHERE id = ?;`,
+        [calculatedInitialBalance, now, accountId]
+      );
+
+      const updated = await this.findById(accountId);
+      if (!updated) {
+        throw new Error(`Falha ao recuperar conta após ajuste com ID: ${accountId}`);
+      }
+      return updated;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      await LogService.getInstance().logCriticalError('ACCOUNT_ADJUST_BALANCE_FAILED', message);
+      throw new Error(`Erro ao ajustar saldo da conta [${accountId}]: ${message}`);
     }
   }
 }

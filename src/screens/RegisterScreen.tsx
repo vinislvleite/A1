@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { AuthService } from '../services/AuthService';
+import { SuccessCheckIcon } from '../components/SuccessCheckIcon';
 
 export function RegisterScreen() {
   const [name, setName] = useState('');
@@ -26,6 +27,7 @@ export function RegisterScreen() {
   const [agreePrivacy, setAgreePrivacy] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isRegistered, setIsRegistered] = useState(false);
 
   const authService = new AuthService();
 
@@ -42,8 +44,18 @@ export function RegisterScreen() {
       return;
     }
 
-    if (password.length < 6) {
-      setErrorMessage('A senha deve ter pelo menos 6 caracteres.');
+    if (password.length < 8) {
+      setErrorMessage('A senha deve ter no mínimo 8 caracteres.');
+      return;
+    }
+
+    if (!/[A-Z]/.test(password)) {
+      setErrorMessage('A senha deve conter ao menos uma letra maiúscula.');
+      return;
+    }
+
+    if (!/[^A-Za-z0-9]/.test(password)) {
+      setErrorMessage('A senha deve conter ao menos um caractere especial.');
       return;
     }
 
@@ -64,12 +76,7 @@ export function RegisterScreen() {
       setIsLoading(false);
 
       if (result.success) {
-        Alert.alert('Sucesso', 'Conta criada com sucesso!', [
-          {
-            text: 'OK',
-            onPress: () => router.replace('/home' as unknown as Parameters<typeof router.replace>[0]),
-          },
-        ]);
+        setIsRegistered(true);
       } else {
         setErrorMessage(result.error ?? 'Falha ao criar conta.');
       }
@@ -79,6 +86,49 @@ export function RegisterScreen() {
       setErrorMessage(message);
     }
   };
+
+  if (isRegistered) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.confirmedContainer}>
+          <View style={styles.confirmedCard}>
+            <View style={styles.confirmedIconWrapper}>
+              <SuccessCheckIcon size={76} />
+            </View>
+
+            <Text style={styles.confirmedTitle}>Conta Criada com Sucesso!</Text>
+
+            <Text style={styles.confirmedDescription}>
+              Seu cadastro foi realizado com sucesso. Seus dados estão seguros e criptografados localmente no seu dispositivo.
+            </Text>
+
+            <View style={styles.accountSummaryBox}>
+              <View style={styles.accountSummaryRow}>
+                <Feather name="user" size={16} color="#60A5FA" />
+                <Text style={styles.accountSummaryName}>{name}</Text>
+              </View>
+              <View style={styles.accountSummaryRow}>
+                <Feather name="mail" size={16} color="#94A3B8" />
+                <Text style={styles.accountSummaryEmail}>{email}</Text>
+              </View>
+              <View style={styles.accountSummaryBadge}>
+                <Feather name="shield" size={14} color="#4ADE80" />
+                <Text style={styles.accountSummaryBadgeText}>Banco de dados sincronizado localmente</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.btnConfirmed}
+              onPress={() => router.replace('/home' as unknown as Parameters<typeof router.replace>[0])}
+              activeOpacity={0.85}>
+              <Text style={styles.btnConfirmedText}>Acessar Meu Orçamento</Text>
+              <Feather name="arrow-right" size={18} color="#FFFFFF" style={styles.btnConfirmedIcon} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -364,5 +414,107 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 13,
     color: '#94A3B8',
+  },
+  confirmedContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  confirmedCard: {
+    width: '100%',
+    maxWidth: 380,
+    backgroundColor: '#1E293B',
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#334155',
+    padding: 28,
+    alignItems: 'center',
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  confirmedIconWrapper: {
+    marginBottom: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmedTitle: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  confirmedDescription: {
+    color: '#94A3B8',
+    fontSize: 14,
+    lineHeight: 21,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  accountSummaryBox: {
+    width: '100%',
+    backgroundColor: '#0F172A',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#334155',
+    padding: 14,
+    marginBottom: 24,
+  },
+  accountSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  accountSummaryName: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  accountSummaryEmail: {
+    color: '#94A3B8',
+    fontSize: 13,
+    marginLeft: 8,
+  },
+  accountSummaryBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#1E293B',
+  },
+  accountSummaryBadgeText: {
+    color: '#4ADE80',
+    fontSize: 11,
+    fontWeight: '500',
+    marginLeft: 6,
+  },
+  btnConfirmed: {
+    width: '100%',
+    height: 54,
+    borderRadius: 14,
+    backgroundColor: '#2563EB',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  btnConfirmedText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  btnConfirmedIcon: {
+    marginLeft: 8,
   },
 });

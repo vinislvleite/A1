@@ -35,8 +35,115 @@ const getNativeSQLiteModule = (): SQLiteModule | null => {
   }
 };
 
+const formatSqliteErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'object' && error !== null) {
+    const errorObj = error as Record<string, unknown>;
+    if (typeof errorObj.message === 'string' && errorObj.message.trim().length > 0) {
+      return errorObj.message;
+    }
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+};
+
 class WebSQLiteStore {
-  private tables = new Map<string, Record<string, unknown>[]>();
+  private authTables = new Map<string, Record<string, unknown>[]>();
+  private userStores = new Map<string, Map<string, Record<string, unknown>[]>>();
+  private activeUserId: string | null = null;
+
+  public setActiveUser(userId: string | null): void {
+    this.activeUserId = userId;
+  }
+
+  public getActiveUserId(): string | null {
+    return this.activeUserId;
+  }
+
+  private getTable(tableName: string): Record<string, unknown>[] {
+    const isAuth = tableName.toLowerCase() === 'users' || tableName.toLowerCase() === 'system_logs';
+    if (isAuth) {
+      return this.authTables.get(tableName.toLowerCase()) ?? [];
+    }
+    const key = this.activeUserId || 'default';
+    let userStore = this.userStores.get(key);
+    if (!userStore) {
+      userStore = new Map<string, Record<string, unknown>[]>();
+      this.userStores.set(key, userStore);
+    }
+    if (tableName.toLowerCase() === 'categories' && !userStore.has('categories')) {
+      this.seedDefaultCategoriesForStore(userStore);
+    }
+    return userStore.get(tableName.toLowerCase()) ?? [];
+  }
+
+  private setTable(tableName: string, rows: Record<string, unknown>[]): void {
+    const isAuth = tableName.toLowerCase() === 'users' || tableName.toLowerCase() === 'system_logs';
+    if (isAuth) {
+      this.authTables.set(tableName.toLowerCase(), rows);
+      return;
+    }
+    const key = this.activeUserId || 'default';
+    let userStore = this.userStores.get(key);
+    if (!userStore) {
+      userStore = new Map<string, Record<string, unknown>[]>();
+      this.userStores.set(key, userStore);
+    }
+    userStore.set(tableName.toLowerCase(), rows);
+  }
+
+  private createTable(tableName: string): void {
+    const isAuth = tableName.toLowerCase() === 'users' || tableName.toLowerCase() === 'system_logs';
+    if (isAuth) {
+      if (!this.authTables.has(tableName.toLowerCase())) {
+        this.authTables.set(tableName.toLowerCase(), []);
+      }
+      return;
+    }
+    const key = this.activeUserId || 'default';
+    let userStore = this.userStores.get(key);
+    if (!userStore) {
+      userStore = new Map<string, Record<string, unknown>[]>();
+      this.userStores.set(key, userStore);
+    }
+    if (!userStore.has(tableName.toLowerCase())) {
+      userStore.set(tableName.toLowerCase(), []);
+    }
+  }
+
+  private deleteTable(tableName: string): void {
+    const isAuth = tableName.toLowerCase() === 'users' || tableName.toLowerCase() === 'system_logs';
+    if (isAuth) {
+      this.authTables.delete(tableName.toLowerCase());
+      return;
+    }
+    const key = this.activeUserId || 'default';
+    const userStore = this.userStores.get(key);
+    if (userStore) {
+      userStore.delete(tableName.toLowerCase());
+    }
+  }
+
+  private seedDefaultCategoriesForStore(store: Map<string, Record<string, unknown>[]>): void {
+    const defaultCategories: Record<string, unknown>[] = [
+      { id: 'cat-alim', name: 'Alimentação', description: 'Supermercado, restaurantes, delivery', color: '#F59E0B', icon: 'coffee', is_custom: 0 },
+      { id: 'cat-transp', name: 'Transporte', description: 'Combustível, transporte público, aplicativo', color: '#3B82F6', icon: 'navigation', is_custom: 0 },
+      { id: 'cat-lazer', name: 'Lazer', description: 'Cinema, passeios, viagens, entretenimento', color: '#EC4899', icon: 'smile', is_custom: 0 },
+      { id: 'cat-saude', name: 'Saúde', description: 'Farmácia, consultas, plano de saúde', color: '#EF4444', icon: 'activity', is_custom: 0 },
+      { id: 'cat-educ', name: 'Educação', description: 'Cursos, livros, faculdade', color: '#8B5CF6', icon: 'book', is_custom: 0 },
+      { id: 'cat-morad', name: 'Moradia', description: 'Aluguel, condomínio, luz, água, internet', color: '#10B981', icon: 'home', is_custom: 0 },
+      { id: 'cat-sal', name: 'Salário', description: 'Remuneração principal, benefícios', color: '#22C55E', icon: 'dollar-sign', is_custom: 0 },
+      { id: 'cat-serv', name: 'Serviços', description: 'Freelas, trabalhos extras, consultoria', color: '#6366F1', icon: 'briefcase', is_custom: 0 },
+      { id: 'cat-outr', name: 'Outros', description: 'Despesas e receitas diversas', color: '#6B7280', icon: 'grid', is_custom: 0 },
+    ];
+    store.set('categories', defaultCategories);
+  }
 
   public execute(sql: string, params: (string | number | boolean | null)[]): ResultSet {
     const trimmed = sql.trim();
@@ -49,10 +156,7 @@ class WebSQLiteStore {
     if (upper.startsWith('CREATE TABLE')) {
       const match = trimmed.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_]+)/i);
       if (match && match[1]) {
-        const tableName = match[1].toLowerCase();
-        if (!this.tables.has(tableName)) {
-          this.tables.set(tableName, []);
-        }
+        this.createTable(match[1].toLowerCase());
       }
       return this.createResultSet([]);
     }
@@ -60,7 +164,7 @@ class WebSQLiteStore {
     if (upper.startsWith('DROP TABLE')) {
       const match = trimmed.match(/DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?([a-zA-Z0-9_]+)/i);
       if (match && match[1]) {
-        this.tables.delete(match[1].toLowerCase());
+        this.deleteTable(match[1].toLowerCase());
       }
       return this.createResultSet([]);
     }
@@ -93,16 +197,16 @@ class WebSQLiteStore {
     const tableName = match[1].toLowerCase();
     const columns = match[2].split(',').map((c) => c.trim().toLowerCase());
 
-    if (!this.tables.has(tableName)) {
-      this.tables.set(tableName, []);
-    }
+    this.createTable(tableName);
 
     const row: Record<string, unknown> = {};
     columns.forEach((col, index) => {
       row[col] = params[index] !== undefined ? params[index] : null;
     });
 
-    this.tables.get(tableName)!.push(row);
+    const currentRows = this.getTable(tableName);
+    currentRows.push(row);
+    this.setTable(tableName, currentRows);
     return this.createResultSet([], 1, 1);
   }
 
@@ -116,7 +220,7 @@ class WebSQLiteStore {
     const setClause = tableMatch[2];
     const columns = setClause.split(',').map((part) => part.split('=')[0].trim().toLowerCase());
 
-    const rows = this.tables.get(tableName) ?? [];
+    const rows = this.getTable(tableName);
     const whereId = params[params.length - 1];
 
     let rowsAffected = 0;
@@ -128,25 +232,43 @@ class WebSQLiteStore {
         rowsAffected++;
       }
     }
-
+    this.setTable(tableName, rows);
     return this.createResultSet([], rowsAffected);
   }
 
   private handleDelete(sql: string, params: (string | number | boolean | null)[]): ResultSet {
-    const match = sql.match(/DELETE\s+FROM\s+([a-zA-Z0-9_]+)\s+WHERE\s+([a-zA-Z0-9_]+)\s*=\s*\?/i);
-    if (!match || !match[1] || !match[2]) {
+    const match = sql.match(/DELETE\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+WHERE\s+([a-zA-Z0-9_]+)\s*([<>=!]+)\s*\?)?/i);
+    if (!match || !match[1]) {
       return this.createResultSet([]);
     }
 
     const tableName = match[1].toLowerCase();
+    const rows = this.getTable(tableName);
+    const initialLen = rows.length;
+
+    if (!match[2]) {
+      this.setTable(tableName, []);
+      return this.createResultSet([], initialLen);
+    }
+
     const targetCol = match[2].toLowerCase();
+    const operator = match[3] || '=';
     const targetVal = params[0];
 
-    const rows = this.tables.get(tableName) ?? [];
-    const initialLen = rows.length;
-    const remaining = rows.filter((r) => r[targetCol] !== targetVal);
-    this.tables.set(tableName, remaining);
+    let remaining: Record<string, unknown>[] = [];
+    if (operator === '<') {
+      remaining = rows.filter((r) => !(String(r[targetCol]) < String(targetVal)));
+    } else if (operator === '<=') {
+      remaining = rows.filter((r) => !(String(r[targetCol]) <= String(targetVal)));
+    } else if (operator === '>') {
+      remaining = rows.filter((r) => !(String(r[targetCol]) > String(targetVal)));
+    } else if (operator === '>=') {
+      remaining = rows.filter((r) => !(String(r[targetCol]) >= String(targetVal)));
+    } else {
+      remaining = rows.filter((r) => r[targetCol] !== targetVal);
+    }
 
+    this.setTable(tableName, remaining);
     return this.createResultSet([], initialLen - remaining.length);
   }
 
@@ -154,7 +276,7 @@ class WebSQLiteStore {
     const upper = sql.toUpperCase();
 
     if (upper.includes('FROM SCHEMA_MIGRATIONS')) {
-      const rows = this.tables.get('schema_migrations') ?? [];
+      const rows = this.getTable('schema_migrations');
       const sorted = [...rows].sort((a, b) => Number(a.version) - Number(b.version));
       return this.createResultSet(sorted);
     }
@@ -166,7 +288,7 @@ class WebSQLiteStore {
 
     if (upper.includes('SUM(CASE WHEN TYPE =') && upper.includes('FROM TRANSACTIONS')) {
       if (upper.includes('GROUP BY ACCOUNT_ID')) {
-        const allTx = this.tables.get('transactions') ?? [];
+        const allTx = this.getTable('transactions');
         const grouped = new Map<string, { total_income: number; total_expense: number }>();
 
         for (const tx of allTx) {
@@ -191,14 +313,13 @@ class WebSQLiteStore {
       const endDate = String(params[1]).split('T')[0];
       const accountId = params.length > 2 ? String(params[2]) : undefined;
 
-      const rows = (this.tables.get('transactions') ?? []).filter((tx) => {
+      const rows = this.getTable('transactions').filter((tx) => {
         const txDay = String(tx.date).substring(0, 10);
         const matchDate = txDay >= startDate && txDay <= endDate;
         const matchAccount = accountId ? tx.account_id === accountId : true;
         const isConfirmed = tx.status === 'confirmada';
         return matchDate && matchAccount && isConfirmed;
       });
-
 
       let totalIncome = 0;
       let totalExpense = 0;
@@ -211,14 +332,13 @@ class WebSQLiteStore {
       return this.createResultSet([{ total_income: totalIncome, total_expense: totalExpense }]);
     }
 
-
     const fromMatch = sql.match(/FROM\s+([a-zA-Z0-9_]+)/i);
     if (!fromMatch || !fromMatch[1]) {
       return this.createResultSet([]);
     }
 
     const tableName = fromMatch[1].toLowerCase();
-    let rows = [...(this.tables.get(tableName) ?? [])];
+    let rows = [...this.getTable(tableName)];
 
     if (tableName === 'transactions') {
       rows = this.filterTransactions(params, sql);
@@ -252,12 +372,17 @@ class WebSQLiteStore {
       rows.sort((a, b) => String(a.name).localeCompare(String(b.name)));
     } else if (tableName === 'goals') {
       rows.sort((a, b) => String(a.deadline).localeCompare(String(b.deadline)));
+    } else if (tableName === 'system_logs') {
+      rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
     }
 
     if (upper.includes('LIMIT ? OFFSET ?')) {
       const limitVal = Number(params[params.length - 2]);
       const offsetVal = Number(params[params.length - 1]);
       rows = rows.slice(offsetVal, offsetVal + limitVal);
+    } else if (upper.includes('LIMIT ?')) {
+      const limitVal = Number(params[params.length - 1]);
+      rows = rows.slice(0, limitVal);
     }
 
     return this.createResultSet(rows);
@@ -267,7 +392,7 @@ class WebSQLiteStore {
     params: (string | number | boolean | null)[],
     sql: string
   ): Record<string, unknown>[] {
-    let rows = [...(this.tables.get('transactions') ?? [])];
+    let rows = [...this.getTable('transactions')];
     const upper = sql.toUpperCase();
 
     if (upper.includes('ACCOUNT_ID = ?')) {
@@ -327,9 +452,11 @@ class WebSQLiteStore {
 
 export class DatabaseManager {
   private static instance: DatabaseManager | null = null;
-  private database: RNSQLiteDatabase | null = null;
+  private authDatabase: RNSQLiteDatabase | null = null;
+  private userDatabase: RNSQLiteDatabase | null = null;
   private webStore: WebSQLiteStore | null = null;
-  private readonly databaseName: string = 'orcamentofacil.db';
+  private activeUserId: string | null = null;
+  private readonly authDatabaseName: string = 'orcamentofacil.db';
 
   private constructor() {
     if (Platform.OS === 'web' || !hasNativeSQLite) {
@@ -344,30 +471,137 @@ export class DatabaseManager {
     return DatabaseManager.instance;
   }
 
-  public async getDatabase(): Promise<RNSQLiteDatabase | null> {
+  public getActiveUserId(): string | null {
+    return this.activeUserId;
+  }
+
+  public async setActiveUser(userId: string | null): Promise<void> {
+    if (this.activeUserId === userId && (userId === null || this.userDatabase !== null || this.webStore !== null)) {
+      return;
+    }
+
+    if (this.userDatabase) {
+      try {
+        await this.userDatabase.close();
+      } catch {}
+      this.userDatabase = null;
+    }
+
+    this.activeUserId = userId;
+
+    if (this.webStore) {
+      this.webStore.setActiveUser(userId);
+    }
+
+    if (userId && (Platform.OS !== 'web' && hasNativeSQLite)) {
+      await this.getUserDatabase();
+    }
+  }
+
+  public async getAuthDatabase(): Promise<RNSQLiteDatabase | null> {
     const sqliteModule = getNativeSQLiteModule();
     if (!sqliteModule) {
       return null;
     }
 
-    if (this.database) {
-      return this.database;
+    if (this.authDatabase) {
+      return this.authDatabase;
     }
 
     try {
-      this.database = await sqliteModule.openDatabase({
-        name: this.databaseName,
+      this.authDatabase = await sqliteModule.openDatabase({
+        name: this.authDatabaseName,
         location: 'default',
       });
 
-      await this.database.executeSql('PRAGMA foreign_keys = ON;');
-      await runMigrations(this.database);
+      await this.authDatabase.executeSql('PRAGMA foreign_keys = ON;');
+      await runMigrations(this.authDatabase);
 
-      return this.database;
+      return this.authDatabase;
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Falha ao inicializar o banco de dados SQLite: ${message}`);
+      if (this.authDatabase) {
+        try {
+          await this.authDatabase.close();
+        } catch {}
+        this.authDatabase = null;
+      }
+      const message = formatSqliteErrorMessage(error);
+      throw new Error(`Falha ao inicializar o banco de dados de autenticação SQLite: ${message}`);
     }
+  }
+
+  public async getUserDatabase(): Promise<RNSQLiteDatabase | null> {
+    const sqliteModule = getNativeSQLiteModule();
+    if (!sqliteModule) {
+      return null;
+    }
+
+    if (this.userDatabase) {
+      return this.userDatabase;
+    }
+
+    if (!this.activeUserId) {
+      return this.getAuthDatabase();
+    }
+
+    const sanitizedId = this.activeUserId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const userDbName = `orcamentofacil_usr_${sanitizedId}.db`;
+
+    try {
+      this.userDatabase = await sqliteModule.openDatabase({
+        name: userDbName,
+        location: 'default',
+      });
+
+      await this.userDatabase.executeSql('PRAGMA foreign_keys = ON;');
+      await runMigrations(this.userDatabase);
+      await this.ensureDefaultCategories(this.userDatabase);
+
+      return this.userDatabase;
+    } catch (error: unknown) {
+      if (this.userDatabase) {
+        try {
+          await this.userDatabase.close();
+        } catch {}
+        this.userDatabase = null;
+      }
+      const message = formatSqliteErrorMessage(error);
+      throw new Error(`Falha ao inicializar o banco do usuário SQLite: ${message}`);
+    }
+  }
+
+  private async ensureDefaultCategories(db: RNSQLiteDatabase): Promise<void> {
+    try {
+      const [res] = await db.executeSql('SELECT COUNT(*) as count FROM categories;');
+      const count = res?.rows?.item(0)?.count ?? 0;
+      if (count > 0) return;
+
+      const defaults = [
+        ['cat-alim', 'Alimentação', 'Supermercado, restaurantes, delivery', '#F59E0B', 'coffee', 0],
+        ['cat-transp', 'Transporte', 'Combustível, transporte público, aplicativo', '#3B82F6', 'navigation', 0],
+        ['cat-lazer', 'Lazer', 'Cinema, passeios, viagens, entretenimento', '#EC4899', 'smile', 0],
+        ['cat-saude', 'Saúde', 'Farmácia, consultas, plano de saúde', '#EF4444', 'activity', 0],
+        ['cat-educ', 'Educação', 'Cursos, livros, faculdade', '#8B5CF6', 'book', 0],
+        ['cat-morad', 'Moradia', 'Aluguel, condomínio, luz, água, internet', '#10B981', 'home', 0],
+        ['cat-sal', 'Salário', 'Remuneração principal, benefícios', '#22C55E', 'dollar-sign', 0],
+        ['cat-serv', 'Serviços', 'Freelas, trabalhos extras, consultoria', '#6366F1', 'briefcase', 0],
+        ['cat-outr', 'Outros', 'Despesas e receitas diversas', '#6B7280', 'grid', 0],
+      ];
+
+      for (const item of defaults) {
+        await db.executeSql(
+          'INSERT OR IGNORE INTO categories (id, name, description, color, icon, is_custom) VALUES (?, ?, ?, ?, ?, ?);',
+          item
+        );
+      }
+    } catch {}
+  }
+
+  public async getDatabase(): Promise<RNSQLiteDatabase | null> {
+    if (this.activeUserId) {
+      return this.getUserDatabase();
+    }
+    return this.getAuthDatabase();
   }
 
   public async executeQuery(
@@ -381,7 +615,13 @@ export class DatabaseManager {
       return this.webStore.execute(sql, params);
     }
 
-    const db = await this.getDatabase();
+    const trimmed = sql.trim();
+    const isAuthQuery = /\b(users|system_logs)\b/i.test(trimmed);
+
+    const db = isAuthQuery
+      ? await this.getAuthDatabase()
+      : await this.getUserDatabase();
+
     if (!db) {
       throw new Error('Banco de dados não inicializado.');
     }
@@ -390,7 +630,7 @@ export class DatabaseManager {
       const [resultSet] = await db.executeSql(sql, params);
       return resultSet;
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = formatSqliteErrorMessage(error);
       throw new Error(`Erro ao executar consulta SQL [${sql}]: ${message}`);
     }
   }
@@ -400,13 +640,23 @@ export class DatabaseManager {
       return;
     }
 
-    if (this.database) {
+    if (this.userDatabase) {
       try {
-        await this.database.close();
-        this.database = null;
+        await this.userDatabase.close();
+        this.userDatabase = null;
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Erro ao fechar o banco de dados: ${message}`);
+        const message = formatSqliteErrorMessage(error);
+        throw new Error(`Erro ao fechar o banco de dados do usuário: ${message}`);
+      }
+    }
+
+    if (this.authDatabase) {
+      try {
+        await this.authDatabase.close();
+        this.authDatabase = null;
+      } catch (error: unknown) {
+        const message = formatSqliteErrorMessage(error);
+        throw new Error(`Erro ao fechar o banco de dados de autenticação: ${message}`);
       }
     }
   }

@@ -9,7 +9,6 @@ import {
   RefreshControl,
   AppState,
   Modal,
-  Alert,
   type ListRenderItemInfo,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,7 +20,8 @@ import { CalculateBalanceUseCase } from '../domain/usecases/CalculateBalanceUseC
 import { CalculateBudgetProgressUseCase } from '../domain/usecases/CalculateBudgetProgressUseCase';
 import { TransactionRepository } from '../data/repositories/TransactionRepository';
 import { CategoryRepository } from '../data/repositories/CategoryRepository';
-import { seedDatabase } from '../data/database/seed';
+import { LogoutModal } from '../components/LogoutModal';
+import { LogService } from '../services/LogService';
 
 interface Transaction {
   id: string;
@@ -100,32 +100,33 @@ export function HomeScreen() {
   const transactionRepository = new TransactionRepository();
   const categoryRepository = new CategoryRepository();
 
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   const handleLogout = () => {
-    Alert.alert(
-      'Deslogar',
-      'Deseja realmente sair da sua conta?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Deslogar',
-          style: 'destructive',
-          onPress: async () => {
-            await authService.logout();
-            router.replace('/login' as unknown as Parameters<typeof router.replace>[0]);
-          },
-        },
-      ]
-    );
+    setShowLogoutModal(true);
+  };
+
+  const confirmLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await authService.logout();
+      setShowLogoutModal(false);
+      router.replace('/login' as unknown as Parameters<typeof router.replace>[0]);
+    } catch {
+      setIsLoggingOut(false);
+    }
   };
 
   const loadDashboardData = useCallback(async () => {
     try {
-      await seedDatabase();
-
       const currentUser = await authService.getCurrentUser();
-      if (currentUser) {
-        setUser({ name: currentUser.name, email: currentUser.email });
+      if (!currentUser) {
+        router.replace('/login' as unknown as Parameters<typeof router.replace>[0]);
+        return;
       }
+
+      setUser({ name: currentUser.name, email: currentUser.email });
 
 
       const now = new Date();
@@ -161,11 +162,13 @@ export function HomeScreen() {
         const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         const isYesterday = txDate.toDateString() === yesterday.toDateString();
         const timeStr = txDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const day = String(txDate.getDate()).padStart(2, '0');
+        const month = String(txDate.getMonth() + 1).padStart(2, '0');
         const dateLabel = isToday
           ? `Hoje, ${timeStr}`
           : isYesterday
           ? `Ontem, ${timeStr}`
-          : txDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+          : `${day}/${month}, ${timeStr}`;
 
         return {
           id: tx.id,
@@ -192,6 +195,7 @@ export function HomeScreen() {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'active') {
         loadDashboardData();
+        LogService.getInstance().purgeOldLogs(15);
       }
     });
 
@@ -202,6 +206,7 @@ export function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      setActiveTab('home');
       loadDashboardData();
     }, [loadDashboardData])
   );
@@ -273,15 +278,24 @@ export function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      <LinearGradient
-        colors={['#2563EB', '#1D4ED8']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.balanceCard}>
-        <Text style={styles.balanceLabel}>Saldo de hoje</Text>
-        <Text style={styles.balanceValue}>
-          {formatCurrency(dailyBalance.balance)}
-        </Text>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={() => router.push('/accounts' as unknown as Parameters<typeof router.push>[0])}>
+        <LinearGradient
+          colors={['#2563EB', '#1D4ED8']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.balanceCard}>
+          <View style={styles.balanceCardTopRow}>
+            <Text style={styles.balanceLabel}>Saldo de hoje</Text>
+            <View style={styles.viewAccountsChip}>
+              <Text style={styles.viewAccountsText}>Minhas Contas</Text>
+              <Feather name="chevron-right" size={13} color="#BFDBFE" />
+            </View>
+          </View>
+          <Text style={styles.balanceValue}>
+            {formatCurrency(dailyBalance.balance)}
+          </Text>
 
         <View style={styles.balanceStatsRow}>
           <View style={styles.balanceStatItem}>
@@ -311,11 +325,14 @@ export function HomeScreen() {
           </View>
         </View>
       </LinearGradient>
+      </TouchableOpacity>
 
       <View style={styles.budgetCard}>
         <View style={styles.cardHeaderRow}>
           <Text style={styles.cardTitle}>Orçamento do mês</Text>
-          <TouchableOpacity activeOpacity={0.7}>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => router.push('/budgets' as unknown as Parameters<typeof router.push>[0])}>
             <Text style={styles.cardActionLink}>Ver tudo</Text>
           </TouchableOpacity>
         </View>
@@ -337,6 +354,27 @@ export function HomeScreen() {
             end={{ x: 1, y: 0 }}
             style={[styles.progressFill, { width: `${budgetPercentage}%` }]}
           />
+        </View>
+
+        <View style={styles.budgetReminderRow}>
+          <Feather
+            name={monthlyBudget.spent > monthlyBudget.total && monthlyBudget.total > 0 ? 'alert-circle' : 'info'}
+            size={13}
+            color={monthlyBudget.spent > monthlyBudget.total && monthlyBudget.total > 0 ? '#F87171' : '#60A5FA'}
+          />
+          <Text
+            style={[
+              styles.budgetReminderText,
+              monthlyBudget.spent > monthlyBudget.total && monthlyBudget.total > 0
+                ? styles.budgetReminderTextWarning
+                : null,
+            ]}>
+            {monthlyBudget.total === 0
+              ? 'Nenhum limite definido para este mês'
+              : monthlyBudget.spent >= monthlyBudget.total
+              ? `Limite mensal atingido (${formatCurrency(monthlyBudget.spent - monthlyBudget.total)} acima)`
+              : `Restante para o mês: ${formatCurrency(monthlyBudget.total - monthlyBudget.spent)}`}
+          </Text>
         </View>
       </View>
 
@@ -362,6 +400,15 @@ export function HomeScreen() {
         ListHeaderComponent={renderHeader}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContentContainer}
+        ListEmptyComponent={
+          <View style={styles.emptyTransactionsContainer}>
+            <Feather name="inbox" size={36} color="#475569" />
+            <Text style={styles.emptyTransactionsTitle}>Nenhuma transação recente</Text>
+            <Text style={styles.emptyTransactionsSubtitle}>
+              Toque no botão + abaixo para registrar seu primeiro gasto ou receita.
+            </Text>
+          </View>
+        }
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -388,7 +435,10 @@ export function HomeScreen() {
           <TouchableOpacity
             style={styles.tabItem}
             activeOpacity={0.7}
-            onPress={() => router.push('/transactions-list' as unknown as Parameters<typeof router.push>[0])}>
+            onPress={() => {
+              setActiveTab('list');
+              router.push('/transactions-list' as unknown as Parameters<typeof router.push>[0]);
+            }}>
             <Feather
               name="list"
               size={22}
@@ -412,7 +462,10 @@ export function HomeScreen() {
           <TouchableOpacity
             style={styles.tabItem}
             activeOpacity={0.7}
-            onPress={() => setActiveTab('analytics')}>
+            onPress={() => {
+              setActiveTab('analytics');
+              router.push('/budgets' as unknown as Parameters<typeof router.push>[0]);
+            }}>
             <Feather
               name="pie-chart"
               size={22}
@@ -502,6 +555,13 @@ export function HomeScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <LogoutModal
+        visible={showLogoutModal}
+        onCancel={() => setShowLogoutModal(false)}
+        onConfirm={confirmLogout}
+        isLoading={isLoggingOut}
+      />
     </SafeAreaView>
   );
 }
@@ -550,6 +610,25 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderWidth: 1,
     borderColor: '#475569',
+  },
+  balanceCardTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  viewAccountsChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  viewAccountsText: {
+    fontSize: 11,
+    color: '#E0E7FF',
+    fontWeight: '500',
   },
   balanceLabel: {
     fontSize: 13,
@@ -669,6 +748,21 @@ const styles = StyleSheet.create({
   progressFill: {
     height: '100%',
     borderRadius: 4,
+  },
+  budgetReminderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+  },
+  budgetReminderText: {
+    fontSize: 12,
+    color: '#94A3B8',
+    fontWeight: '500',
+  },
+  budgetReminderTextWarning: {
+    color: '#F87171',
+    fontWeight: '600',
   },
   sectionTitleRow: {
     flexDirection: 'row',
@@ -864,5 +958,29 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     fontSize: 14,
     fontWeight: '500',
+  },
+  emptyTransactionsContainer: {
+    backgroundColor: '#1E293B',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#334155',
+    paddingVertical: 28,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  emptyTransactionsTitle: {
+    color: '#F8FAFC',
+    fontSize: 15,
+    fontWeight: '600',
+    marginTop: 10,
+  },
+  emptyTransactionsSubtitle: {
+    color: '#94A3B8',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 18,
   },
 });

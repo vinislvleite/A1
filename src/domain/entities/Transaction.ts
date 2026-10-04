@@ -52,11 +52,22 @@ export interface UpdateTransactionDTO {
 export interface TransactionFilter {
   accountId?: string;
   categoryId?: string;
+  categoryIds?: string[];
   type?: TransactionType;
   status?: TransactionStatus;
   startDate?: string;
   endDate?: string;
   searchTerm?: string;
+  minValue?: number;
+  maxValue?: number;
+}
+
+export type TransactionSortField = 'date' | 'value' | 'category';
+export type SortDirection = 'ASC' | 'DESC';
+
+export interface TransactionSortOptions {
+  field?: TransactionSortField;
+  direction?: SortDirection;
 }
 
 export interface PaginatedResult<T> {

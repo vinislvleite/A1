@@ -1,10 +1,12 @@
 import type { SQLiteDatabase } from 'react-native-sqlite-storage';
 import { Migration, migration001Initial } from './migration_001_initial';
+import { migration002SystemLogs } from './migration_002_system_logs';
 
 export { Migration };
 
 export const migrations: Migration[] = [
   migration001Initial,
+  migration002SystemLogs,
 ];
 
 export async function runMigrations(db: SQLiteDatabase): Promise<void> {
