@@ -345,9 +345,21 @@ class WebSQLiteStore {
     } else if (sql.includes('WHERE id = ?')) {
       const targetId = params[0];
       rows = rows.filter((r) => r.id === targetId);
-    } else if (sql.includes('WHERE email = ?')) {
-      const targetEmail = String(params[0]).toLowerCase();
-      rows = rows.filter((r) => String(r.email).toLowerCase() === targetEmail);
+    } else if (sql.includes('WHERE username = ?') || sql.includes('WHERE LOWER(username) = ?')) {
+      const targetUsername = String(params[0]).toLowerCase();
+      rows = rows.filter((r) => String(r.username || '').toLowerCase() === targetUsername);
+    } else if (sql.includes('WHERE email = ?') || sql.includes('WHERE LOWER(email) = ?')) {
+      if (sql.includes('OR LOWER(username) = ?') || sql.includes('OR username = ?')) {
+        const target = String(params[0]).toLowerCase();
+        rows = rows.filter(
+          (r) =>
+            String(r.email || '').toLowerCase() === target ||
+            String(r.username || '').toLowerCase() === target
+        );
+      } else {
+        const targetEmail = String(params[0]).toLowerCase();
+        rows = rows.filter((r) => String(r.email).toLowerCase() === targetEmail);
+      }
     } else if (tableName === 'budgets' && sql.includes('WHERE category_id = ?')) {
       const catId = params[0];
       const month = params[1];

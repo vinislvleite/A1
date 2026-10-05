@@ -37,12 +37,14 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const [errors, setErrors] = useState<{ username?: string; password?: string }>({});
 
   const [registerName, setRegisterName] = useState('');
+  const [registerUsername, setRegisterUsername] = useState('');
   const [registerEmail, setRegisterEmail] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [registerConfirmPassword, setRegisterConfirmPassword] = useState('');
   const [isRegisterLoading, setIsRegisterLoading] = useState(false);
   const [registerErrors, setRegisterErrors] = useState<{
     name?: string;
+    username?: string;
     email?: string;
     password?: string;
     confirmPassword?: string;
@@ -144,6 +146,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
   const validateRegister = (): boolean => {
     const newErrors: {
       name?: string;
+      username?: string;
       email?: string;
       password?: string;
       confirmPassword?: string;
@@ -152,6 +155,12 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
     if (!registerName.trim()) {
       newErrors.name = 'Informe seu nome completo';
+    }
+
+    if (!registerUsername.trim()) {
+      newErrors.username = 'Informe seu nome de usuário';
+    } else if (!/^[a-zA-Z0-9_.-]+$/.test(registerUsername.trim())) {
+      newErrors.username = 'Usuário deve conter apenas letras, números e sublinhados';
     }
 
     if (!registerEmail.trim() || !registerEmail.includes('@')) {
@@ -182,7 +191,12 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
     setRegisterErrors({});
 
     try {
-      const result = await authService.register(registerName, registerEmail, registerPassword);
+      const result = await authService.register(
+        registerName,
+        registerEmail,
+        registerPassword,
+        registerUsername
+      );
       setIsRegisterLoading(false);
 
       if (!result.success) {
@@ -357,6 +371,20 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                     autoCorrect={false}
                     leftIcon={<UserIcon size={20} color="#94A3B8" />}
                     error={registerErrors.name}
+                  />
+
+                  <FinanceInput
+                    label="Nome de Usuário"
+                    placeholder="Digite seu nome de usuário (ex: vinileite)"
+                    value={registerUsername}
+                    onChangeText={(text) => {
+                      setRegisterUsername(text);
+                      if (registerErrors.username) setRegisterErrors((prev) => ({ ...prev, username: undefined }));
+                    }}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    leftIcon={<UserIcon size={20} color="#94A3B8" />}
+                    error={registerErrors.username}
                   />
 
                   <FinanceInput

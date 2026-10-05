@@ -17,8 +17,12 @@ export async function seedDemoUser(): Promise<boolean> {
     user = await userRepository.createUser({
       name: 'Vinicius Leite',
       email: 'teste@orcamentofacil.com',
+      username: 'vinileite',
       password: 'Teste123!',
     });
+  } else if (!user.username) {
+    await dbManager.executeQuery('UPDATE users SET username = ? WHERE id = ?;', ['vinileite', user.id]);
+    user.username = 'vinileite';
   }
 
   await dbManager.setActiveUser(user.id);
@@ -483,5 +487,28 @@ export async function seedDemoUser(): Promise<boolean> {
 }
 
 export async function seedDatabase(): Promise<boolean> {
+  return seedDemoUser();
+}
+
+export async function resetAndSeedDatabase(): Promise<boolean> {
+  const dbManager = DatabaseManager.getInstance();
+  try {
+    await dbManager.executeQuery('DELETE FROM transactions;');
+  } catch {}
+  try {
+    await dbManager.executeQuery('DELETE FROM budgets;');
+  } catch {}
+  try {
+    await dbManager.executeQuery('DELETE FROM goals;');
+  } catch {}
+  try {
+    await dbManager.executeQuery('DELETE FROM accounts;');
+  } catch {}
+  try {
+    await dbManager.executeQuery('DELETE FROM categories;');
+  } catch {}
+  try {
+    await dbManager.executeQuery('DELETE FROM users;');
+  } catch {}
   return seedDemoUser();
 }

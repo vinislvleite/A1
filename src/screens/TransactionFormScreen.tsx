@@ -20,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useFocusEffect } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import { FinanceButton, FinanceInput } from '@/components/finance-login';
 import { TransactionRepository } from '../data/repositories/TransactionRepository';
 import { CategoryRepository } from '../data/repositories/CategoryRepository';
@@ -43,6 +44,7 @@ interface SavedTransactionSummary {
   categoryName: string;
   accountName: string;
   date: string;
+  attachmentUri?: string;
 }
 
 const getLocalDateString = (d: Date = new Date()): string => {
@@ -399,6 +401,7 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
         categoryName: cat ? cat.name : 'Geral',
         accountName: acc ? acc.name : 'Conta',
         date: formattedDate,
+        attachmentUri: attachmentUri || undefined,
       });
     } catch (error: unknown) {
       setIsLoading(false);
@@ -447,6 +450,29 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
 
     const handleShare = async () => {
       try {
+        if (savedSummary.attachmentUri) {
+          const isSharingAvailable = await Sharing.isAvailableAsync();
+          if (isSharingAvailable) {
+            const rawUri = savedSummary.attachmentUri;
+            const shareUri = rawUri.startsWith('file://') || rawUri.startsWith('content://')
+              ? rawUri
+              : `file://${rawUri}`;
+            const lower = shareUri.toLowerCase();
+            const mimeType = lower.endsWith('.png')
+              ? 'image/png'
+              : lower.endsWith('.webp')
+              ? 'image/webp'
+              : lower.endsWith('.pdf')
+              ? 'application/pdf'
+              : 'image/jpeg';
+            await Sharing.shareAsync(shareUri, {
+              mimeType,
+              dialogTitle: 'Compartilhar comprovante',
+            });
+            return;
+          }
+        }
+
         const message = [
           'Comprovante de Transação - Orçamento Fácil',
           `Descrição: ${savedSummary.description}`,

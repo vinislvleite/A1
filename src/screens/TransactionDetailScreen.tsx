@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import { TransactionRepository } from '../data/repositories/TransactionRepository';
 import { CategoryRepository } from '../data/repositories/CategoryRepository';
 import { AccountRepository } from '../data/repositories/AccountRepository';
@@ -113,6 +114,29 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
   const handleShare = async () => {
     if (!transaction) return;
     try {
+      if (transaction.attachment_uri) {
+        const isSharingAvailable = await Sharing.isAvailableAsync();
+        if (isSharingAvailable) {
+          const rawUri = transaction.attachment_uri;
+          const shareUri = rawUri.startsWith('file://') || rawUri.startsWith('content://')
+            ? rawUri
+            : `file://${rawUri}`;
+          const lower = shareUri.toLowerCase();
+          const mimeType = lower.endsWith('.png')
+            ? 'image/png'
+            : lower.endsWith('.webp')
+            ? 'image/webp'
+            : lower.endsWith('.pdf')
+            ? 'application/pdf'
+            : 'image/jpeg';
+          await Sharing.shareAsync(shareUri, {
+            mimeType,
+            dialogTitle: 'Compartilhar comprovante',
+          });
+          return;
+        }
+      }
+
       const isIncome = transaction.type === 'receita';
       const formattedVal = `${isIncome ? '+' : '-'} ${formatCurrency(transaction.value)}`;
       const message = [
@@ -312,7 +336,9 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
             onPress={handleShare}
             activeOpacity={0.8}>
             <Feather name="share-2" size={18} color="#FFFFFF" style={styles.actionBtnIcon} />
-            <Text style={styles.btnShareText}>Compartilhar Transação</Text>
+            <Text style={styles.btnShareText}>
+              {transaction.attachment_uri ? 'Compartilhar Comprovante' : 'Compartilhar Transação'}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity

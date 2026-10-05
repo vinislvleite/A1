@@ -19,6 +19,7 @@ import { SuccessCheckIcon } from '../components/SuccessCheckIcon';
 
 export function RegisterScreen() {
   const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -36,6 +37,16 @@ export function RegisterScreen() {
 
     if (!name.trim()) {
       setErrorMessage('Informe seu nome completo.');
+      return;
+    }
+
+    if (!username.trim()) {
+      setErrorMessage('Informe seu nome de usuário.');
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_.-]+$/.test(username.trim())) {
+      setErrorMessage('Usuário deve conter apenas letras, números e sublinhados.');
       return;
     }
 
@@ -72,7 +83,7 @@ export function RegisterScreen() {
     setIsLoading(true);
 
     try {
-      const result = await authService.register(name, email, password);
+      const result = await authService.register(name, email, password, username);
       setIsLoading(false);
 
       if (result.success) {
@@ -170,6 +181,25 @@ export function RegisterScreen() {
                     if (errorMessage) setErrorMessage(null);
                   }}
                   autoCapitalize="words"
+                  autoCorrect={false}
+                  maxLength={50}
+                  selectionColor="#60A5FA"
+                  returnKeyType="next"
+                />
+              </View>
+
+              <View style={styles.inputBox}>
+                <Feather name="at-sign" size={18} color="#64748B" />
+                <TextInput
+                  style={styles.inputField}
+                  placeholder="Nome de usuário (ex: vinileite)"
+                  placeholderTextColor="#64748B"
+                  value={username}
+                  onChangeText={(text: string) => {
+                    setUsername(text);
+                    if (errorMessage) setErrorMessage(null);
+                  }}
+                  autoCapitalize="none"
                   autoCorrect={false}
                   maxLength={50}
                   selectionColor="#60A5FA"

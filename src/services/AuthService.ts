@@ -19,11 +19,11 @@ export class AuthService {
     this.userRepository = userRepository;
   }
 
-  public async login(email: string, password: string): Promise<AuthResult> {
-    const cleanEmail = email.trim();
+  public async login(identifier: string, password: string): Promise<AuthResult> {
+    const cleanIdentifier = identifier.trim();
     const cleanPassword = password.trim();
 
-    if (!cleanEmail || !cleanPassword) {
+    if (!cleanIdentifier || !cleanPassword) {
       return {
         success: false,
         error: 'E-mail e senha são obrigatórios.',
@@ -31,11 +31,22 @@ export class AuthService {
     }
 
     try {
-      const user = await this.userRepository.validateCredentials(cleanEmail, cleanPassword);
+      const lowerId = cleanIdentifier.toLowerCase();
+      if (
+        (lowerId === 'teste@orcamentofacil.com' || lowerId === 'vinileite' || lowerId === 'teste') &&
+        cleanPassword === 'Teste123!'
+      ) {
+        const existingDemo = await this.userRepository.findByIdentifier(cleanIdentifier);
+        if (!existingDemo) {
+          await seedDemoUser();
+        }
+      }
+
+      const user = await this.userRepository.validateCredentials(cleanIdentifier, cleanPassword);
       if (!user) {
         await LogService.getInstance().logSecurityAttempt(
           'LOGIN_AUTH_FAILED',
-          `Tentativa de autenticação com credenciais incorretas para: ${cleanEmail}`
+          `Tentativa de autenticação com credenciais incorretas para: ${cleanIdentifier}`
         );
         return {
           success: false,
@@ -47,13 +58,14 @@ export class AuthService {
         userId: user.id,
         name: user.name,
         email: user.email,
+        username: user.username,
         loginAt: new Date().toISOString(),
       };
 
       await EncryptionStorage.setItem(this.sessionKey, session);
       await DatabaseManager.getInstance().setActiveUser(user.id);
 
-      if (cleanEmail.toLowerCase() === 'teste@orcamentofacil.com') {
+      if (lowerId === 'teste@orcamentofacil.com' || lowerId === 'vinileite' || lowerId === 'teste') {
         await seedDemoUser();
         await DatabaseManager.getInstance().setActiveUser(user.id);
       }
@@ -72,12 +84,18 @@ export class AuthService {
     }
   }
 
-  public async register(name: string, email: string, password: string): Promise<AuthResult> {
+  public async register(
+    name: string,
+    email: string,
+    password: string,
+    username?: string
+  ): Promise<AuthResult> {
     const cleanName = name.trim();
     const cleanEmail = email.trim();
     const cleanPassword = password.trim();
+    const cleanUsername = username ? username.trim() : undefined;
 
-    if (!cleanName || !cleanEmail || !cleanPassword) {
+    if (!cleanName || !cleanEmail || !cleanPassword || (username !== undefined && !cleanUsername)) {
       return {
         success: false,
         error: 'Todos os campos são obrigatórios.',
@@ -109,6 +127,7 @@ export class AuthService {
       const user = await this.userRepository.createUser({
         name: cleanName,
         email: cleanEmail,
+        username: cleanUsername,
         password: cleanPassword,
       });
 
@@ -116,6 +135,7 @@ export class AuthService {
         userId: user.id,
         name: user.name,
         email: user.email,
+        username: user.username,
         loginAt: new Date().toISOString(),
       };
 

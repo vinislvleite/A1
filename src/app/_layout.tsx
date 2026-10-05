@@ -12,12 +12,14 @@ import { useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { LogService } from '@/services/LogService';
+import { seedDemoUser } from '@/data/database/seed';
 
 SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   useEffect(() => {
     LogService.getInstance().purgeOldLogs(15);
+    seedDemoUser().catch(() => {});
   }, []);
 
   return (

@@ -47,6 +47,7 @@ export function AccountScreen() {
           id: session.userId,
           name: session.name,
           email: session.email,
+          username: session.username || session.email.split('@')[0],
           password_hash: '',
           created_at: session.loginAt,
         });
