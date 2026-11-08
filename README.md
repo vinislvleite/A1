@@ -267,4 +267,4 @@ Histórias de usuário organizadas em 3 sprints equilibradas de 26 histórias ca
 
 ## Easter Egg
 
-ShiroFofo dentro de `src/app/index.tsx`.
+ShiroBonzinho dentro de `src/app/index.tsx`.
