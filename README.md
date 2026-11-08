@@ -21,37 +21,30 @@ Ele funciona **100% offline**, armazenando todos os registros contábeis exclusi
 
 ---
 
-## Funcionalidades Entregues
+## Funcionalidades Principais
 
-### Sprint 1 (Fundação e Gestão Básica)
-- **Autenticação Segura e Biometria:** Cadastro local com hash SHA-256 e Salt, login biométrico (impressão digital / Face ID) e recuperação por perguntas de segurança.
-- **Gestão de Contas Bancárias:** Criação de contas correntes, poupanças e cartões com paleta de 24 cores oficiais de bancos e 28 ícones temáticos.
-- **Transações Financeiras:** Lançamento de receitas e despesas com formatação em tempo real (`R$ 0,00`), anexo de comprovantes da câmera/galeria, data/hora retroativa e notas.
-- **Transferências Atômicas:** Movimentações entre contas com garantia de consistência e rollback automático em caso de falha.
-- **Orçamento Mensal Básico:** Limites por categoria com barras de progresso visual (seguro, atenção >60%, alerta >90%).
-- **Extrato e Filtros Avançados:** Busca textual com debounce e filtros simultâneos por tipo, categoria, período e valores.
-- **Privacidade e Limpeza:** Expurgo de transações por período e retenção máxima de logs de até 15 dias.
+### 💳 Cartões de Crédito & Contas
+- **Ciclo e Fatura Inteligente:** Cálculo preciso de fechamento inclusivo, vencimento, fatura aberta e limite disponível/utilizado.
+- **Parcelamento Automático:** Divisão de compras em até 48 parcelas mensais (`1/N` a `N/N`) com distribuição automática nos ciclos futuros.
+- **Múltiplas Contas & Extrato Consolidado:** Contas correntes, poupanças e cartões com saldo acumulado progressivo linha a linha e transferências atômicas.
+- **Simulador de Rotativo:** Cálculo imediato de juros compostos sobre o saldo devedor do cartão.
 
-### Sprint 2 (Inteligência Financeira, Planejamento e Segurança)
-- **Transações Recorrentes Automáticas (US27):** Projeção e duplicação automática de receitas e despesas mensais.
-- **Parcelamento Inteligente de Despesas (US28):** Divisão automática de compras em parcelas mensais (`1/N` até `N/N`).
-- **Gestão Integral de Fatura de Cartão (US29):** Visão de limite total, limite disponível, fatura aberta e data de fechamento/vencimento.
-- **Extrato Bancário Consolidado (US30 e US31):** Saldo progressivo acumulado linha a linha e navegação horizontal por chips de contas.
-- **Orçamentos Avançados (US32, US33, US34, US35):**
-  - **Orçamento Anual e Flexível:** Adaptação dinâmica conforme variação de receitas mensais.
-  - **Orçamento Base Zero (Zero-Based):** Alocação intencional de 100% da receita entre as categorias.
-  - **Orçamento por Eventos:** Tetos isolados para viagens, festas ou reformas sem interferir nos limites mensais das categorias.
-- **Controle de Tetos e Limites (US36 e US37):**
-  - Limite diário parametrizável por dia da semana (ex: tetos específicos para finais de semana).
-  - Teto individual por transação com alerta imediato contra gastos imprevistos.
-- **Metas de Gastos por Categoria (US38):** Tela dedicada e padronizada com cartões de indicadores, seletores temáticos de categoria com ícones e status em tempo real.
-- **Modo Cortina de Privacidade (US39):** Ocultação e revelação de valores monetários em toda a árvore de componentes via context provider global.
-- **Criptografia e Restauração Externa (US40 e US41):** Motor de backup com rotação diária (máx. 7 arquivos) e suporte à importação de arquivo externo `.json` criptografado.
-- **Central de Contas Fixas e Boletos (US42 e US43):** Calendário mensal unificado, indicadores de status (*Pendente*, *Pago*, *Vencendo*) e notificações prévias.
-- **Renda Extra e Cartão Rotativo (US44 e US45):** Identificação de rendas variáveis e simulador/calculadora de juros sobre saldo rotativo devedor.
-- **Histórico e Categorias Enriquecidas (US46, US47, US48):** Histórico evolutivo anual, descrições detalhadas e autossugestão inteligente de categorias baseada em palavras-chave.
-- **Etiquetas, Tags e Pendências (US49, US50, US51):** Tags livres, etiquetas visuais de cores e marcação de status pendente com conciliação manual.
-- **Controle Sensorial (US52):** Configuração para desativar alertas sonoros mantendo notificações visuais discretas.
+### 📊 Orçamentos & Planejamento
+- **Modelos Avançados de Orçamento:** Mensal, anual, flexível (ajuste por receita), base zero (Zero-Based) e por eventos (viagens, festas).
+- **Tetos de Gastos:** Limite diário parametrizável por dia da semana e teto individual por transação com alerta imediato.
+- **Metas por Categoria:** Painel com indicadores visuais de progresso e status em tempo real.
+
+### 🔄 Recorrência & Contas a Pagar
+- **Lançamentos Recorrentes:** Projeção e duplicação automática de receitas e despesas mensais com catch-up.
+- **Central de Contas Fixas & Boletos:** Calendário de vencimentos com status (*Pendente*, *Pago*, *Vencendo*) e lembretes antecipados.
+- **Classificação Inteligente:** Tags livres personalizadas, etiquetas visuais coloridas e autossugestão de categorias por palavras-chave.
+
+### 🛡️ Privacidade, Segurança & Sistema
+- **100% Offline & Criptografia:** Persistência relacional em SQLite local com hash SHA-256 e HMAC.
+- **Modo Cortina de Privacidade:** Ocultação e revelação instantânea de todos os saldos e valores monetários com um toque.
+- **Backup Criptografado com Rotação:** Backups diários automáticos (retenção de 7 dias) e importação/exportação externa de arquivo `.json`.
+- **Controle Sensorial:** Alternância entre alertas sonoros e modo silencioso para notificações financeiras.
+- **Diálogos Próprios Padronizados:** Sistema de modais nativo consistente com a identidade dark fintech.
 
 ---
 
@@ -150,11 +143,16 @@ No terminal do Metro, pressione:
 
 ---
 
-## Backlog Completo do Produto
+## Backlog do Produto (78 Histórias)
 
-Histórias de usuário organizadas em 3 sprints equilibradas de 26 histórias cada (78 histórias no total).
+| Sprint | Foco Principal | Histórias | Status |
+|---|---|:---:|:---:|
+| **Sprint 1** | **Fundação:** Autenticação biométrica, contas, transações, categorias e extrato | US01 a US26 | ✅ Concluída |
+| **Sprint 2** | **Inteligência:** Recorrência, parcelamento, faturas, tetos, backup e modo sensorial | US27 a US52 | ✅ Concluída |
+| **Sprint 3** | **Análise Avançada:** Gráficos, relatórios anuais, projeções de saldo e multi-moeda | US53 a US78 | ⏳ Planejada |
 
-### Sprint 1 (Concluída)
+<details>
+<summary><b>Ver detalhamento da Sprint 1 (US01 a US26)</b></summary>
 
 | # | História |
 |---|---|
@@ -185,9 +183,10 @@ Histórias de usuário organizadas em 3 sprints equilibradas de 26 histórias ca
 | US25 | Apagar transações de um período selecionado, com confirmação dupla. |
 | US26 | Acessar a política de privacidade do aplicativo. |
 
----
+</details>
 
-### Sprint 2 (Concluída)
+<details>
+<summary><b>Ver detalhamento da Sprint 2 (US27 a US52)</b></summary>
 
 | # | História |
 |---|---|
@@ -218,9 +217,10 @@ Histórias de usuário organizadas em 3 sprints equilibradas de 26 histórias ca
 | US51 | Marcar uma transação como "pendente", com status de confirmação manual. |
 | US52 | Desativar o som das notificações financeiras. |
 
----
+</details>
 
-### Sprint 3 (Planejada)
+<details>
+<summary><b>Ver detalhamento da Sprint 3 (US53 a US78)</b></summary>
 
 | # | História |
 |---|---|
@@ -250,6 +250,8 @@ Histórias de usuário organizadas em 3 sprints equilibradas de 26 histórias ca
 | US76 | Convidar outra pessoa para gerenciar um orçamento compartilhado. |
 | US77 | Adicionar um observador ao orçamento, com acesso somente leitura. |
 | US78 | Registrar transações em outras moedas, com conversão automática pela cotação do dia. |
+
+</details>
 
 ---
 
