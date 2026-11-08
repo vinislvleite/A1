@@ -4,7 +4,6 @@
 [![Expo](https://img.shields.io/badge/Expo-57-000020?style=for-the-badge&logo=expo&logoColor=white)](https://expo.dev/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-Offline_First-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
-[![Status](https://img.shields.io/badge/Sprint_2-100%25_Concluida-10B981?style=for-the-badge)]()
 
 O **Orçamento Fácil** é um aplicativo mobile de controle financeiro pessoal moderno, intuitivo e com foco em **privacidade e segurança**. 
 
