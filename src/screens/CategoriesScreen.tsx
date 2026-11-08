@@ -6,7 +6,6 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Modal,
   TextInput,
   StatusBar,
@@ -18,6 +17,8 @@ import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { CategoryRepository } from '../data/repositories/CategoryRepository';
 import { Category } from '../domain/entities/Category';
+import { ConfirmModal } from '../components/ConfirmModal';
+import { dialog } from '../components/dialogs';
 
 const AVAILABLE_COLORS = [
   '#EF4444',
@@ -124,6 +125,9 @@ export function CategoriesScreen() {
   const [categoryColor, setCategoryColor] = useState(AVAILABLE_COLORS[0]);
   const [categoryIcon, setCategoryIcon] = useState<keyof typeof Feather.glyphMap>(AVAILABLE_ICONS[0]);
   const [isSaving, setIsSaving] = useState(false);
+  const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
+  const [isDeletingCategory, setIsDeletingCategory] = useState(false);
+  const [blockedActionMessage, setBlockedActionMessage] = useState<string | null>(null);
 
   const categoryRepo = new CategoryRepository();
 
@@ -133,7 +137,7 @@ export function CategoriesScreen() {
       const list = await categoryRepo.findAll();
       setCategories(list);
     } catch {
-      Alert.alert('Erro', 'Falha ao carregar categorias.');
+      dialog.alerta({ titulo: 'Erro', mensagem: 'Falha ao carregar categorias.', tipo: 'erro' });
     } finally {
       setIsLoading(false);
     }
@@ -172,7 +176,7 @@ export function CategoriesScreen() {
 
   const handleSave = async () => {
     if (!categoryName.trim()) {
-      Alert.alert('Atenção', 'Informe o nome da categoria.');
+      dialog.alerta({ titulo: 'Atenção', mensagem: 'Informe o nome da categoria.', tipo: 'atencao' });
       return;
     }
 
@@ -200,7 +204,7 @@ export function CategoriesScreen() {
       await loadCategories();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Falha ao salvar categoria.';
-      Alert.alert('Erro', message);
+      dialog.alerta({ titulo: 'Erro', mensagem: message, tipo: 'erro' });
     } finally {
       setIsSaving(false);
     }
@@ -210,35 +214,34 @@ export function CategoriesScreen() {
     try {
       const txCount = await categoryRepo.countTransactionsByCategoryId(cat.id);
       if (txCount > 0) {
-        Alert.alert(
-          'Ação Bloqueada',
+        setBlockedActionMessage(
           `Não é possível excluir esta categoria porque ela possui ${txCount} transação(ões) vinculada(s). Exclua ou altere as transações antes de remover a categoria.`
         );
         return;
       }
 
-      Alert.alert(
-        'Excluir Categoria',
-        `Deseja realmente excluir a categoria "${cat.name}"?`,
-        [
-          { text: 'Cancelar', style: 'cancel' },
-          {
-            text: 'Excluir',
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                await categoryRepo.delete(cat.id);
-                loadCategories();
-              } catch (error: unknown) {
-                const message = error instanceof Error ? error.message : 'Falha ao excluir categoria.';
-                Alert.alert('Erro', message);
-              }
-            },
-          },
-        ]
-      );
+      setCategoryToDelete(cat);
     } catch {
-      Alert.alert('Erro', 'Não foi possível verificar as transações associadas.');
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: 'Não foi possível verificar as transações associadas.',
+        tipo: 'erro',
+      });
+    }
+  };
+
+  const handleConfirmDeleteCategory = async () => {
+    if (!categoryToDelete) return;
+    setIsDeletingCategory(true);
+    try {
+      await categoryRepo.delete(categoryToDelete.id);
+      setCategoryToDelete(null);
+      loadCategories();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Falha ao excluir categoria.';
+      dialog.alerta({ titulo: 'Erro', mensagem: message, tipo: 'erro' });
+    } finally {
+      setIsDeletingCategory(false);
     }
   };
 
@@ -460,6 +463,27 @@ export function CategoriesScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+      <ConfirmModal
+        visible={Boolean(categoryToDelete)}
+        title="Excluir Categoria"
+        description={`Deseja realmente excluir a categoria "${categoryToDelete?.name}"?`}
+        confirmText="Excluir"
+        cancelText="Cancelar"
+        variant="danger"
+        isLoading={isDeletingCategory}
+        onConfirm={handleConfirmDeleteCategory}
+        onCancel={() => setCategoryToDelete(null)}
+      />
+      <ConfirmModal
+        visible={Boolean(blockedActionMessage)}
+        title="Ação Bloqueada"
+        description={blockedActionMessage ?? ''}
+        confirmText="Entendido"
+        variant="warning"
+        icon="alert-circle"
+        singleButton
+        onConfirm={() => setBlockedActionMessage(null)}
+      />
     </SafeAreaView>
   );
 }

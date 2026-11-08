@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
-  Alert,
   StatusBar,
   Modal,
   FlatList,
@@ -24,6 +23,8 @@ import { CategoryRepository } from '../data/repositories/CategoryRepository';
 import { Category } from '../domain/entities/Category';
 import { formatMoneyValue } from '../components/MoneyText';
 import { usePrivacyMode } from '../context/PrivacyContext';
+import { ConfirmModal } from '../components/ConfirmModal';
+import { MONTH_NAMES } from '../utils/date';
 
 interface DraftAllocationItem {
   id: string;
@@ -33,20 +34,7 @@ interface DraftAllocationItem {
   allocated_value: number;
 }
 
-const MONTH_NAMES = [
-  'Janeiro',
-  'Fevereiro',
-  'Março',
-  'Abril',
-  'Maio',
-  'Junho',
-  'Julho',
-  'Agosto',
-  'Setembro',
-  'Outubro',
-  'Novembro',
-  'Dezembro',
-];
+
 
 const VALID_CATEGORY_ICONS = new Set<string>([
   'coffee', 'shopping-bag', 'shopping-cart', 'package', 'navigation', 'truck',
@@ -104,6 +92,12 @@ export function ZeroBasedBudgetScreen() {
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [feedbackModal, setFeedbackModal] = useState<{
+    title: string;
+    description: string;
+    variant?: 'danger' | 'warning' | 'primary';
+    icon?: keyof typeof Feather.glyphMap;
+  } | null>(null);
 
   const categoriesMap = useMemo(() => {
     const map = new Map<string, Category>();
@@ -143,7 +137,12 @@ export function ZeroBasedBudgetScreen() {
         }))
       );
     } catch {
-      Alert.alert('Erro', 'Falha ao carregar alocação zero-based.');
+      setFeedbackModal({
+        title: 'Erro',
+        description: 'Falha ao carregar alocação zero-based.',
+        variant: 'danger',
+        icon: 'alert-circle',
+      });
     } finally {
       setIsLoading(false);
     }
@@ -170,12 +169,15 @@ export function ZeroBasedBudgetScreen() {
     const label = newGroup === 'gastos' ? (selectedCategory?.name ?? newName.trim()) : newName.trim();
 
     if (!label || val <= 0) {
-      Alert.alert(
-        'Atenção',
-        newGroup === 'gastos'
-          ? 'Selecione uma categoria e informe um valor maior que zero.'
-          : 'Informe o destino e um valor maior que zero.'
-      );
+      setFeedbackModal({
+        title: 'Atenção',
+        description:
+          newGroup === 'gastos'
+            ? 'Selecione uma categoria e informe um valor maior que zero.'
+            : 'Informe o destino e um valor maior que zero.',
+        variant: 'warning',
+        icon: 'alert-triangle',
+      });
       return;
     }
 
@@ -209,14 +211,21 @@ export function ZeroBasedBudgetScreen() {
         items,
         syncExpenseBudgets: true,
       });
-      Alert.alert(
-        'Orçamento Zero-based Salvo',
-        liveSummary.isZeroBalanced
+      setFeedbackModal({
+        title: 'Orçamento Salvo',
+        description: liveSummary.isZeroBalanced
           ? 'Perfeito! Cada real da sua receita prevista tem um destino planejado (Restante: R$ 0,00).'
-          : 'Alocações do mês salvas com sucesso.'
-      );
+          : 'Alocações do mês salvas com sucesso.',
+        variant: 'primary',
+        icon: 'check-circle',
+      });
     } catch {
-      Alert.alert('Erro', 'Não foi possível salvar a alocação.');
+      setFeedbackModal({
+        title: 'Erro',
+        description: 'Não foi possível salvar a alocação.',
+        variant: 'danger',
+        icon: 'alert-circle',
+      });
     } finally {
       setIsSaving(false);
     }
@@ -579,6 +588,17 @@ export function ZeroBasedBudgetScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <ConfirmModal
+        visible={Boolean(feedbackModal)}
+        title={feedbackModal?.title ?? ''}
+        description={feedbackModal?.description ?? ''}
+        variant={feedbackModal?.variant ?? 'primary'}
+        icon={feedbackModal?.icon}
+        singleButton
+        confirmText="Entendido"
+        onConfirm={() => setFeedbackModal(null)}
+      />
     </SafeAreaView>
   );
 }

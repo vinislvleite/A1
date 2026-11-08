@@ -9,13 +9,13 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { AuthService } from '../services/AuthService';
 import { SuccessCheckIcon } from '../components/SuccessCheckIcon';
+import { dialog } from '../components/dialogs';
 
 export function RegisterScreen() {
   const [name, setName] = useState('');
@@ -302,10 +302,12 @@ export function RegisterScreen() {
                 <Text
                   style={styles.linkBlue}
                   onPress={() =>
-                    Alert.alert(
-                      'Política de Privacidade',
-                      'Seus dados são armazenados exclusivamente de forma local e segura no seu dispositivo com criptografia.'
-                    )
+                    dialog.alerta({
+                      titulo: 'Política de Privacidade',
+                      mensagem:
+                        'Seus dados são armazenados exclusivamente de forma local e segura no seu dispositivo com criptografia.',
+                      tipo: 'informacao',
+                    })
                   }>
                   Política de Privacidade
                 </Text>

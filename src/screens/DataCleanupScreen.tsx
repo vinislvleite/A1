@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -15,6 +14,8 @@ import { TransactionRepository } from '../data/repositories/TransactionRepositor
 import { AccountRepository } from '../data/repositories/AccountRepository';
 import { Account } from '../domain/entities/Account';
 import { Transaction } from '../domain/entities/Transaction';
+import { formatMoneyValue } from '../components/MoneyText';
+import { dialog } from '../components/dialogs';
 
 export type CleanupPeriod = '30_days' | '90_days' | '180_days' | '365_days' | 'all';
 
@@ -33,8 +34,7 @@ const PERIOD_OPTIONS: PeriodOption[] = [
   { key: 'all', label: 'Todas as transações', days: null, description: 'Limpar todo o histórico' },
 ];
 
-const formatCurrency = (val: number): string =>
-  val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const formatCurrency = (val: number): string => formatMoneyValue(val);
 
 export function DataCleanupScreen() {
   const [selectedPeriod, setSelectedPeriod] = useState<CleanupPeriod>('90_days');
@@ -79,7 +79,11 @@ export function DataCleanupScreen() {
 
       setMatchingTransactions(filtered);
     } catch {
-      Alert.alert('Erro', 'Não foi possível carregar as transações para limpeza.');
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: 'Não foi possível carregar as transações para limpeza.',
+        tipo: 'erro',
+      });
     } finally {
       setIsLoading(false);
     }
@@ -99,51 +103,39 @@ export function DataCleanupScreen() {
     .filter((tx) => tx.type === 'receita')
     .reduce((sum, tx) => sum + tx.value, 0);
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (matchingTransactions.length === 0) return;
+    const confirmed = await dialog.confirmacaoDupla({
+      tituloPasso1: 'Passo 1 de 2: Confirmar Exclusão',
+      mensagemPasso1: `Você está prestes a excluir ${matchingTransactions.length} transações permanentemente. Esta ação não poderá ser desfeita.`,
+      rotuloConfirmarPasso1: 'Continuar',
+      tituloPasso2: 'Passo 2 de 2: Confirmação Definitiva',
+      mensagemPasso2: `Tem certeza absoluta? ${matchingTransactions.length} transações serão apagadas do banco de dados agora.`,
+      rotuloConfirmarPasso2: 'Sim, Excluir Definitivamente',
+      rotuloCancelar: 'Cancelar e voltar',
+      detalheDestaque: `${matchingTransactions.length} transações selecionadas (Receitas: ${formatCurrency(totalIncome)} | Despesas: ${formatCurrency(totalExpense)})`,
+    });
 
-    Alert.alert(
-      'Passo 1 de 2: Confirmar Exclusão',
-      `Deseja apagar ${matchingTransactions.length} transações do período selecionado?\n\nTotal em movimentações: ${formatCurrency(totalIncome + totalExpense)}.`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Continuar',
-          style: 'destructive',
-          onPress: () => confirmFinalDelete(),
-        },
-      ]
-    );
+    if (confirmed) {
+      await handleExecuteFinalDelete();
+    }
   };
 
-  const confirmFinalDelete = () => {
-    Alert.alert(
-      'Passo 2 de 2: Confirmação Definitiva',
-      `ATENÇÃO: Esta ação é irreversível e NÃO poderá ser desfeita. Todos os ${matchingTransactions.length} registros serão apagados do seu banco de dados local.\n\nTem certeza absoluta de que deseja apagar?`,
-      [
-        { text: 'Voltar', style: 'cancel' },
-        {
-          text: 'Sim, Apagar Definitivamente',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setIsDeleting(true);
-              const ids = matchingTransactions.map((tx) => tx.id);
-              await transactionRepo.deleteMany(ids);
-              Alert.alert(
-                'Limpeza Concluída',
-                `${ids.length} transações foram removidas com sucesso.`
-              );
-              calculateMatching();
-            } catch {
-              Alert.alert('Erro', 'Ocorreu um erro ao excluir transações.');
-            } finally {
-              setIsDeleting(false);
-            }
-          },
-        },
-      ]
-    );
+  const handleExecuteFinalDelete = async () => {
+    try {
+      setIsDeleting(true);
+      const ids = matchingTransactions.map((tx) => tx.id);
+      await transactionRepo.deleteMany(ids);
+      calculateMatching();
+    } catch {
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: 'Ocorreu um erro ao excluir transações.',
+        tipo: 'erro',
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (

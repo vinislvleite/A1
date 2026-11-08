@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Image,
   Modal,
   Share,
@@ -23,7 +22,9 @@ import { Category } from '../domain/entities/Category';
 import { Account } from '../domain/entities/Account';
 import { DeleteTransactionModal } from '../components/DeleteTransactionModal';
 import { formatMoneyValue } from '../components/MoneyText';
+import { dialog } from '../components/dialogs';
 import { usePrivacyMode } from '../context/PrivacyContext';
+import { formatDateTime as formatDateTimeUtil } from '../utils/date';
 
 export interface TransactionDetailScreenProps {
   id: string;
@@ -31,20 +32,8 @@ export interface TransactionDetailScreenProps {
 
 const formatCurrency = (val: number): string => formatMoneyValue(val);
 
-const formatDateTime = (isoDate: string): string => {
-  try {
-    const d = new Date(isoDate);
-    if (isNaN(d.getTime())) return isoDate;
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    const hours = String(d.getHours()).padStart(2, '0');
-    const minutes = String(d.getMinutes()).padStart(2, '0');
-    return `${day}/${month}/${year} às ${hours}:${minutes}`;
-  } catch {
-    return isoDate;
-  }
-};
+const formatDateTime = (isoDate: string): string =>
+  formatDateTimeUtil(isoDate, { withAt: true });
 
 export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
   usePrivacyMode();
@@ -66,7 +55,7 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
       setIsLoading(true);
       const tx = await transactionRepo.findById(id);
       if (!tx) {
-        Alert.alert('Erro', 'Transação não encontrada.');
+        dialog.alerta({ titulo: 'Erro', mensagem: 'Transação não encontrada.', tipo: 'erro' });
         router.back();
         return;
       }
@@ -80,7 +69,11 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
       setCategory(cat);
       setAccount(acc);
     } catch {
-      Alert.alert('Erro', 'Não foi possível carregar os detalhes da transação.');
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: 'Não foi possível carregar os detalhes da transação.',
+        tipo: 'erro',
+      });
       router.back();
     } finally {
       setIsLoading(false);
@@ -100,7 +93,11 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
       const updated = await transactionRepo.confirmTransaction(transaction.id);
       setTransaction(updated);
     } catch {
-      Alert.alert('Erro', 'Não foi possível confirmar a transação.');
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: 'Não foi possível confirmar a transação.',
+        tipo: 'erro',
+      });
     } finally {
       setIsActionLoading(false);
     }
@@ -116,7 +113,11 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
         setTransaction(updated);
       }
     } catch {
-      Alert.alert('Erro', 'Não foi possível desativar a recorrência.');
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: 'Não foi possível desativar a recorrência.',
+        tipo: 'erro',
+      });
     } finally {
       setIsActionLoading(false);
     }
@@ -139,7 +140,7 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
       router.back();
     } catch {
       setIsDeleting(false);
-      Alert.alert('Erro', 'Falha ao excluir transação.');
+      dialog.alerta({ titulo: 'Erro', mensagem: 'Falha ao excluir transação.', tipo: 'erro' });
     }
   };
 
@@ -222,7 +223,7 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
             styles.heroCard,
             transaction.color_label
               ? { borderLeftWidth: 5, borderLeftColor: transaction.color_label }
-              : null,
+              : { borderLeftWidth: 1, borderLeftColor: '#334155' },
           ]}>
           <View style={styles.badgesRow}>
             <View

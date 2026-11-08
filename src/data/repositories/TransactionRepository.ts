@@ -74,7 +74,7 @@ export class TransactionRepository {
     const seen = new Set<string>();
     const result: string[] = [];
     for (const raw of tags) {
-      const cleaned = raw.trim();
+      const cleaned = raw.trim().replace(/^#/, '');
       if (!cleaned) continue;
       const lower = cleaned.toLowerCase();
       if (!seen.has(lower)) {
@@ -242,19 +242,19 @@ export class TransactionRepository {
         .filter(Boolean);
       if (cleanTags.length === 1) {
         conditions.push(
-          'id IN (SELECT tt.transaction_id FROM transaction_tags tt JOIN tags tg ON tt.tag_id = tg.id WHERE LOWER(tg.name) = ?)'
+          "id IN (SELECT tt.transaction_id FROM transaction_tags tt JOIN tags tg ON tt.tag_id = tg.id WHERE REPLACE(LOWER(tg.name), '#', '') = ?)"
         );
         params.push(cleanTags[0]);
       } else if (cleanTags.length > 1) {
         const placeholders = cleanTags.map(() => '?').join(',');
         conditions.push(
-          `id IN (SELECT tt.transaction_id FROM transaction_tags tt JOIN tags tg ON tt.tag_id = tg.id WHERE LOWER(tg.name) IN (${placeholders}))`
+          `id IN (SELECT tt.transaction_id FROM transaction_tags tt JOIN tags tg ON tt.tag_id = tg.id WHERE REPLACE(LOWER(tg.name), '#', '') IN (${placeholders}))`
         );
         params.push(...cleanTags);
       }
     } else if (filter.tag) {
       conditions.push(
-        'id IN (SELECT tt.transaction_id FROM transaction_tags tt JOIN tags tg ON tt.tag_id = tg.id WHERE LOWER(tg.name) = ?)'
+        "id IN (SELECT tt.transaction_id FROM transaction_tags tt JOIN tags tg ON tt.tag_id = tg.id WHERE REPLACE(LOWER(tg.name), '#', '') = ?)"
       );
       params.push(filter.tag.trim().toLowerCase().replace(/^#/, ''));
     }

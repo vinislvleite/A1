@@ -25,7 +25,11 @@ export class EncryptionStorage {
         return;
       }
 
-      if (typeof globalThis !== 'undefined' && 'localStorage' in globalThis) {
+      if (
+        typeof globalThis !== 'undefined' &&
+        'localStorage' in globalThis &&
+        Boolean((globalThis as unknown as { localStorage?: Storage }).localStorage)
+      ) {
         const storage = (globalThis as unknown as { localStorage: Storage }).localStorage;
         storage.setItem(key, serialized);
         return;
@@ -50,7 +54,11 @@ export class EncryptionStorage {
         return JSON.parse(data) as T;
       }
 
-      if (typeof globalThis !== 'undefined' && 'localStorage' in globalThis) {
+      if (
+        typeof globalThis !== 'undefined' &&
+        'localStorage' in globalThis &&
+        Boolean((globalThis as unknown as { localStorage?: Storage }).localStorage)
+      ) {
         const storage = (globalThis as unknown as { localStorage: Storage }).localStorage;
         const data = storage.getItem(key);
         return data ? (JSON.parse(data) as T) : null;
@@ -73,7 +81,11 @@ export class EncryptionStorage {
         return;
       }
 
-      if (typeof globalThis !== 'undefined' && 'localStorage' in globalThis) {
+      if (
+        typeof globalThis !== 'undefined' &&
+        'localStorage' in globalThis &&
+        Boolean((globalThis as unknown as { localStorage?: Storage }).localStorage)
+      ) {
         const storage = (globalThis as unknown as { localStorage: Storage }).localStorage;
         storage.removeItem(key);
         return;
@@ -95,7 +107,11 @@ export class EncryptionStorage {
         return;
       }
 
-      if (typeof globalThis !== 'undefined' && 'localStorage' in globalThis) {
+      if (
+        typeof globalThis !== 'undefined' &&
+        'localStorage' in globalThis &&
+        Boolean((globalThis as unknown as { localStorage?: Storage }).localStorage)
+      ) {
         const storage = (globalThis as unknown as { localStorage: Storage }).localStorage;
         storage.clear();
         return;

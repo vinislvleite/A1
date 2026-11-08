@@ -7,7 +7,6 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   StatusBar,
   type ListRenderItemInfo,
@@ -20,7 +19,9 @@ import { CalculateBalanceUseCase, AccountBalanceDetail } from '../domain/usecase
 import { AccountRepository } from '../data/repositories/AccountRepository';
 import { TransactionRepository } from '../data/repositories/TransactionRepository';
 import { formatMoneyValue } from '../components/MoneyText';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { usePrivacyMode } from '../context/PrivacyContext';
+import { dialog } from '../components/dialogs';
 
 const formatCurrency = (value: number): string => formatMoneyValue(value);
 
@@ -79,6 +80,9 @@ export function AccountsListScreen() {
   const [adjustValue, setAdjustValue] = useState('');
   const adjustValueInputRef = useRef<TextInput>(null);
   const [isAdjusting, setIsAdjusting] = useState(false);
+  const [accountToDelete, setAccountToDelete] = useState<AccountBalanceDetail | null>(null);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [blockedActionMessage, setBlockedActionMessage] = useState<string | null>(null);
 
   const balanceUseCase = new CalculateBalanceUseCase();
   const accountRepo = new AccountRepository();
@@ -95,7 +99,11 @@ export function AccountsListScreen() {
       await loadData();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Falha ao ajustar saldo.';
-      Alert.alert('Erro', message);
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: message,
+        tipo: 'erro',
+      });
     } finally {
       setIsAdjusting(false);
     }
@@ -108,7 +116,11 @@ export function AccountsListScreen() {
       setTotalBalance(summary.totalBalance);
       setAccounts(summary.accounts);
     } catch {
-      Alert.alert('Erro', 'Falha ao carregar lista de contas.');
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: 'Falha ao carregar lista de contas.',
+        tipo: 'erro',
+      });
     } finally {
       setIsLoading(false);
     }
@@ -121,35 +133,35 @@ export function AccountsListScreen() {
   );
 
   const handleDeleteAccount = (detail: AccountBalanceDetail) => {
-    Alert.alert(
-      'Excluir Conta',
-      `Deseja realmente excluir a conta "${detail.account.name}"?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Excluir',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const linkedTransactions = await transactionRepo.findByAccountId(detail.account.id);
-              if (linkedTransactions.length > 0) {
-                Alert.alert(
-                  'Ação Bloqueada',
-                  `Não é possível excluir esta conta porque ela possui ${linkedTransactions.length} transação(ões) vinculada(s). Exclua ou transfira as transações primeiro.`
-                );
-                return;
-              }
+    setAccountToDelete(detail);
+  };
 
-              await accountRepo.delete(detail.account.id);
-              loadData();
-            } catch (error: unknown) {
-              const message = error instanceof Error ? error.message : 'Falha ao excluir conta.';
-              Alert.alert('Erro', message);
-            }
-          },
-        },
-      ]
-    );
+  const handleConfirmDeleteAccount = async () => {
+    if (!accountToDelete) return;
+    setIsDeletingAccount(true);
+    try {
+      const linkedTransactions = await transactionRepo.findByAccountId(accountToDelete.account.id);
+      if (linkedTransactions.length > 0) {
+        setAccountToDelete(null);
+        setBlockedActionMessage(
+          `Não é possível excluir esta conta porque ela possui ${linkedTransactions.length} transação(ões) vinculada(s). Exclua ou transfira as transações primeiro.`
+        );
+        return;
+      }
+
+      await accountRepo.delete(accountToDelete.account.id);
+      setAccountToDelete(null);
+      loadData();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Falha ao excluir conta.';
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: message,
+        tipo: 'erro',
+      });
+    } finally {
+      setIsDeletingAccount(false);
+    }
   };
 
   const renderAccountItem = ({ item }: ListRenderItemInfo<AccountBalanceDetail>) => {
@@ -429,6 +441,27 @@ export function AccountsListScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+      <ConfirmModal
+        visible={Boolean(accountToDelete)}
+        title="Excluir Conta"
+        description={`Deseja realmente excluir a conta "${accountToDelete?.account.name}"? As transações vinculadas a ela não serão apagadas.`}
+        confirmText="Excluir"
+        cancelText="Cancelar"
+        variant="danger"
+        isLoading={isDeletingAccount}
+        onConfirm={handleConfirmDeleteAccount}
+        onCancel={() => setAccountToDelete(null)}
+      />
+      <ConfirmModal
+        visible={Boolean(blockedActionMessage)}
+        title="Ação Bloqueada"
+        description={blockedActionMessage ?? ''}
+        confirmText="Entendido"
+        variant="warning"
+        icon="alert-circle"
+        singleButton
+        onConfirm={() => setBlockedActionMessage(null)}
+      />
     </SafeAreaView>
   );
 }

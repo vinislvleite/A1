@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
-  Alert,
   ActivityIndicator,
   FlatList,
 } from 'react-native';
@@ -21,22 +20,17 @@ import { AccountRepository } from '../data/repositories/AccountRepository';
 import { Category } from '../domain/entities/Category';
 import { Account } from '../domain/entities/Account';
 import { formatMoneyValue } from '../components/MoneyText';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { usePrivacyMode } from '../context/PrivacyContext';
-
-const MONTH_NAMES = [
-  'Janeiro',
-  'Fevereiro',
-  'Março',
-  'Abril',
-  'Maio',
-  'Junho',
-  'Julho',
-  'Agosto',
-  'Setembro',
-  'Outubro',
-  'Novembro',
-  'Dezembro',
-];
+import { FinanceInput } from '../components/finance-login';
+import { dialog } from '../components/dialogs';
+import {
+  MONTH_NAMES,
+  formatDateInputMask,
+  parseBrDate,
+  getNextOccurrenceForDay,
+  extractDayFromBrDate,
+} from '../utils/date';
 
 const formatCurrency = (val: number): string => formatMoneyValue(val);
 
@@ -94,7 +88,8 @@ export function BillsScreen() {
   const [editingBill, setEditingBill] = useState<BillWithStatus | null>(null);
   const [nameInput, setNameInput] = useState('');
   const [valueInput, setValueInput] = useState('');
-  const [dueDayInput, setDueDayInput] = useState('10');
+  const [dueDateInput, setDueDateInput] = useState(() => getNextOccurrenceForDay(10));
+  const [dueDateError, setDueDateError] = useState<string | undefined>(undefined);
   const [reminderDaysInput, setReminderDaysInput] = useState('3');
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(undefined);
@@ -106,6 +101,9 @@ export function BillsScreen() {
   const [payModalBill, setPayModalBill] = useState<BillWithStatus | null>(null);
   const [payCreateExpense, setPayCreateExpense] = useState(true);
   const [payAccountId, setPayAccountId] = useState<string>('');
+
+  const [billToDelete, setBillToDelete] = useState<BillWithStatus | null>(null);
+  const [isDeletingBill, setIsDeletingBill] = useState(false);
 
   const manageBillsUseCase = new ManageBillsUseCase();
   const categoryRepo = new CategoryRepository();
@@ -167,13 +165,13 @@ export function BillsScreen() {
     setEditingBill(null);
     setNameInput('');
     setValueInput('');
-    setDueDayInput('10');
+    setDueDateInput(getNextOccurrenceForDay(10));
+    setDueDateError(undefined);
     setReminderDaysInput('3');
     setSelectedCategoryId(categories[0]?.id ?? '');
     setCategorySearchQuery('');
-    setSelectedAccountId(accounts[0]?.id);
+    setSelectedAccountId(undefined);
     setNotesInput('');
-    setCategorySearchQuery('');
     setShowFormModal(true);
   };
 
@@ -181,7 +179,8 @@ export function BillsScreen() {
     setEditingBill(bill);
     setNameInput(bill.name);
     setValueInput(formatValueFromNumber(bill.value));
-    setDueDayInput(String(bill.due_day));
+    setDueDateInput(getNextOccurrenceForDay(bill.due_day));
+    setDueDateError(undefined);
     setReminderDaysInput(String(bill.reminder_days_before));
     setSelectedCategoryId(bill.category_id);
     setSelectedAccountId(bill.account_id);
@@ -191,27 +190,48 @@ export function BillsScreen() {
 
   const handleSaveBill = async () => {
     const parsedVal = parseFloat(valueInput.replace(/\./g, '').replace(',', '.')) || 0;
-    const parsedDue = parseInt(dueDayInput, 10);
     const parsedReminder = parseInt(reminderDaysInput, 10);
 
     if (!nameInput.trim()) {
-      Alert.alert('Campo obrigatório', 'Informe o nome da conta fixa.');
+      dialog.alerta({
+        titulo: 'Campo obrigatório',
+        mensagem: 'Informe o nome da conta fixa.',
+        tipo: 'atencao',
+      });
       return;
     }
     if (Number.isNaN(parsedVal) || parsedVal <= 0) {
-      Alert.alert('Valor inválido', 'Informe um valor maior que zero.');
+      dialog.alerta({
+        titulo: 'Valor inválido',
+        mensagem: 'Informe um valor maior que zero.',
+        tipo: 'atencao',
+      });
       return;
     }
-    if (Number.isNaN(parsedDue) || parsedDue < 1 || parsedDue > 31) {
-      Alert.alert('Dia inválido', 'O dia de vencimento deve estar entre 1 e 31.');
+    const parsedDueResult = parseBrDate(dueDateInput);
+    if (!parsedDueResult.valid) {
+      setDueDateError(parsedDueResult.error || 'Data de vencimento inválida (DD/MM/AAAA)');
+      return;
+    }
+    const parsedDue = extractDayFromBrDate(dueDateInput);
+    if (!parsedDue || parsedDue < 1 || parsedDue > 31) {
+      setDueDateError('Dia de vencimento inválido.');
       return;
     }
     if (Number.isNaN(parsedReminder) || parsedReminder < 0 || parsedReminder > 30) {
-      Alert.alert('Antecedência inválida', 'Informe entre 0 e 30 dias de antecedência.');
+      dialog.alerta({
+        titulo: 'Antecedência inválida',
+        mensagem: 'Informe entre 0 e 30 dias de antecedência.',
+        tipo: 'atencao',
+      });
       return;
     }
     if (!selectedCategoryId) {
-      Alert.alert('Categoria obrigatória', 'Selecione uma categoria.');
+      dialog.alerta({
+        titulo: 'Categoria obrigatória',
+        mensagem: 'Selecione uma categoria.',
+        tipo: 'atencao',
+      });
       return;
     }
 
@@ -255,26 +275,30 @@ export function BillsScreen() {
       await loadData();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Falha ao salvar conta fixa.';
-      Alert.alert('Erro', msg);
+      dialog.alerta({ titulo: 'Erro', mensagem: msg, tipo: 'erro' });
     }
   };
 
   const handleDeleteBill = (bill: BillWithStatus) => {
-    Alert.alert(
-      'Excluir Conta Fixa',
-      `Deseja remover "${bill.name}" da lista de contas a pagar?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Excluir',
-          style: 'destructive',
-          onPress: async () => {
-            await manageBillsUseCase.deleteBill(bill.id);
-            await loadData();
-          },
-        },
-      ]
-    );
+    setBillToDelete(bill);
+  };
+
+  const handleConfirmDeleteBill = async () => {
+    if (!billToDelete) return;
+    setIsDeletingBill(true);
+    try {
+      await manageBillsUseCase.deleteBill(billToDelete.id);
+      setBillToDelete(null);
+      await loadData();
+    } catch {
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: 'Não foi possível excluir a conta fixa.',
+        tipo: 'erro',
+      });
+    } finally {
+      setIsDeletingBill(false);
+    }
   };
 
   const openMarkPaidModal = (bill: BillWithStatus) => {
@@ -297,7 +321,7 @@ export function BillsScreen() {
       await loadData();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Não foi possível registrar o pagamento.';
-      Alert.alert('Atenção', msg);
+      dialog.alerta({ titulo: 'Atenção', mensagem: msg, tipo: 'atencao' });
     }
   };
 
@@ -306,7 +330,11 @@ export function BillsScreen() {
       await manageBillsUseCase.unmarkAsPaid(bill.id, selectedMonth, selectedYear);
       await loadData();
     } catch {
-      Alert.alert('Erro', 'Não foi possível reabrir a conta.');
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: 'Não foi possível reabrir a conta.',
+        tipo: 'erro',
+      });
     }
   };
 
@@ -547,37 +575,55 @@ export function BillsScreen() {
                 />
               </TouchableOpacity>
 
-              <View style={styles.rowInputs}>
-                <View style={styles.halfInput}>
-                  <Text style={styles.inputLabel}>Dia de Vencimento (1-31)</Text>
-                  <View style={styles.inputBox}>
-                    <Feather name="calendar" size={16} color="#60A5FA" />
-                    <TextInput
-                      style={styles.inputText}
-                      keyboardType="numeric"
-                      value={dueDayInput}
-                      onChangeText={setDueDayInput}
-                      placeholder="10"
-                      placeholderTextColor="#64748B"
-                      selectionColor="#60A5FA"
-                    />
-                  </View>
-                </View>
-                <View style={styles.halfInput}>
-                  <Text style={styles.inputLabel}>Lembrar (dias antes)</Text>
-                  <View style={styles.inputBox}>
-                    <Feather name="bell" size={16} color="#60A5FA" />
-                    <TextInput
-                      style={styles.inputText}
-                      keyboardType="numeric"
-                      value={reminderDaysInput}
-                      onChangeText={setReminderDaysInput}
-                      placeholder="3"
-                      placeholderTextColor="#64748B"
-                      selectionColor="#60A5FA"
-                    />
-                  </View>
-                </View>
+              <View style={{ marginTop: 10 }}>
+                <FinanceInput
+                  label="Data do próximo vencimento"
+                  value={dueDateInput}
+                  onChangeText={(text) => {
+                    setDueDateInput(formatDateInputMask(text));
+                    if (dueDateError) setDueDateError(undefined);
+                  }}
+                  placeholder="DD/MM/AAAA"
+                  keyboardType="numeric"
+                  maxLength={10}
+                  error={dueDateError}
+                  leftIcon={
+                    <TouchableOpacity
+                      onPress={async () => {
+                        const chosen = await dialog.datePicker({
+                          titulo: 'Data do Próximo Vencimento',
+                          dataInicial: dueDateInput,
+                        });
+                        if (chosen) {
+                          setDueDateInput(chosen);
+                          if (dueDateError) setDueDateError(undefined);
+                        }
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Feather name="calendar" size={16} color="#60A5FA" />
+                    </TouchableOpacity>
+                  }
+                />
+                {extractDayFromBrDate(dueDateInput) !== null ? (
+                  <Text style={styles.recurrenceHelperText}>
+                    Repete todo dia {extractDayFromBrDate(dueDateInput)}
+                  </Text>
+                ) : null}
+              </View>
+
+              <Text style={styles.inputLabel}>Lembrar (dias antes)</Text>
+              <View style={styles.inputBox}>
+                <Feather name="bell" size={16} color="#60A5FA" />
+                <TextInput
+                  style={styles.inputText}
+                  keyboardType="numeric"
+                  value={reminderDaysInput}
+                  onChangeText={setReminderDaysInput}
+                  placeholder="3"
+                  placeholderTextColor="#64748B"
+                  selectionColor="#60A5FA"
+                />
               </View>
 
               <Text style={styles.inputLabel}>Categoria</Text>
@@ -620,13 +666,28 @@ export function BillsScreen() {
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.chipsRow}>
+                    <TouchableOpacity
+                      style={[styles.chip, !selectedAccountId && styles.chipActive]}
+                      onPress={() => setSelectedAccountId(undefined)}
+                      activeOpacity={0.75}>
+                      <Feather
+                        name="slash"
+                        size={14}
+                        color={!selectedAccountId ? '#FFFFFF' : '#64748B'}
+                      />
+                      <Text style={[styles.chipText, !selectedAccountId && styles.chipTextActive]}>
+                        Nenhuma
+                      </Text>
+                    </TouchableOpacity>
                     {accounts.map((acc) => {
                       const active = acc.id === selectedAccountId;
                       return (
                         <TouchableOpacity
                           key={acc.id}
                           style={[styles.chip, active && styles.chipActive]}
-                          onPress={() => setSelectedAccountId(acc.id)}
+                          onPress={() =>
+                            setSelectedAccountId((prev) => (prev === acc.id ? undefined : acc.id))
+                          }
                           activeOpacity={0.75}>
                           <Feather
                             name="credit-card"
@@ -823,6 +884,18 @@ export function BillsScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <ConfirmModal
+        visible={Boolean(billToDelete)}
+        title="Excluir Conta Fixa"
+        description={`Deseja realmente excluir a conta fixa "${billToDelete?.name}"? Ela deixará de constar no calendário e não gerará novos lembretes.`}
+        confirmText="Excluir"
+        cancelText="Cancelar"
+        variant="danger"
+        isLoading={isDeletingBill}
+        onConfirm={handleConfirmDeleteBill}
+        onCancel={() => setBillToDelete(null)}
+      />
 
     </SafeAreaView>
   );
@@ -1113,6 +1186,12 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     marginTop: 10,
     marginBottom: 6,
+  },
+  recurrenceHelperText: {
+    color: '#60A5FA',
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '500',
   },
   inputBox: {
     backgroundColor: '#0F172A',

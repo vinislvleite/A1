@@ -26,6 +26,7 @@ import { LogService } from '../services/LogService';
 import { MoneyText, formatMoneyValue } from '../components/MoneyText';
 import { usePrivacyMode, PrivacyManager } from '../context/PrivacyContext';
 import { BackupService } from '../services/BackupService';
+import { toIsoDate, fromIsoDate, formatDateDayMonth } from '../utils/date';
 
 interface TransactionItem {
   id: string;
@@ -182,21 +183,26 @@ export function HomeScreen() {
       const categories = await categoryRepository.findAll();
       const categoryMap = new Map(categories.map((c) => [c.id, c]));
 
-      const paginatedTransactions = await transactionRepository.findPaginated(1, 3);
+      const todayStr = toIsoDate(now);
+      const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 12, 0, 0);
+      const yesterdayStr = toIsoDate(yesterday);
+      const paginatedTransactions = await transactionRepository.findPaginated(1, 3, {
+        maxEffectiveDate: todayStr,
+      });
       const mappedTransactions: TransactionItem[] = paginatedTransactions.data.map((tx) => {
         const cat = categoryMap.get(tx.category_id);
-        const txDate = new Date(tx.date);
-        const isToday = txDate.toDateString() === now.toDateString();
-        const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-        const isYesterday = txDate.toDateString() === yesterday.toDateString();
-        const timeStr = txDate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-        const day = String(txDate.getDate()).padStart(2, '0');
-        const month = String(txDate.getMonth() + 1).padStart(2, '0');
+        const txDate = fromIsoDate(tx.date);
+        const txDateStr = toIsoDate(txDate);
+        const isToday = txDateStr === todayStr;
+        const isYesterday = txDateStr === yesterdayStr;
+        const hours = String(txDate.getHours()).padStart(2, '0');
+        const minutes = String(txDate.getMinutes()).padStart(2, '0');
+        const timeStr = `${hours}:${minutes}`;
         const dateLabel = isToday
           ? `Hoje, ${timeStr}`
           : isYesterday
           ? `Ontem, ${timeStr}`
-          : `${day}/${month}, ${timeStr}`;
+          : `${formatDateDayMonth(txDate)}, ${timeStr}`;
 
         return {
           id: tx.id,
@@ -260,7 +266,9 @@ export function HomeScreen() {
       <TouchableOpacity
         style={[
           styles.transactionCard,
-          item.colorLabel ? { borderLeftWidth: 4, borderLeftColor: item.colorLabel } : null,
+          item.colorLabel
+            ? { borderLeftWidth: 4, borderLeftColor: item.colorLabel }
+            : { borderLeftWidth: 1, borderLeftColor: '#334155' },
         ]}
         activeOpacity={0.7}
         onPress={() =>
@@ -955,7 +963,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1E293B',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#475569',
+    borderColor: '#334155',
     flexDirection: 'row',
     alignItems: 'center',
     padding: 14,

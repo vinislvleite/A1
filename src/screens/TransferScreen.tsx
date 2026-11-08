@@ -7,7 +7,6 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   StatusBar,
@@ -21,6 +20,8 @@ import { AccountRepository } from '../data/repositories/AccountRepository';
 import { TransactionRepository } from '../data/repositories/TransactionRepository';
 import { Account } from '../domain/entities/Account';
 import { SuccessCheckIcon } from '../components/SuccessCheckIcon';
+import { formatMoneyValue } from '../components/MoneyText';
+import { dialog } from '../components/dialogs';
 
 const formatCurrencyInput = (rawText: string): string => {
   const cleanDigits = rawText.replace(/\D/g, '').slice(0, 12);
@@ -40,8 +41,7 @@ const parseCurrencyValue = (formattedText: string): number => {
   return parseInt(cleanDigits, 10) / 100;
 };
 
-const formatCurrencyBRL = (val: number): string =>
-  val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const formatCurrencyBRL = (val: number): string => formatMoneyValue(val);
 
 interface TransferSummary {
   sourceAccountName: string;
@@ -85,7 +85,11 @@ export function TransferScreen() {
           setSourceAccountId(list[0].id);
         }
       } catch {
-        Alert.alert('Erro', 'Não foi possível carregar as contas.');
+        dialog.alerta({
+          titulo: 'Erro',
+          mensagem: 'Não foi possível carregar as contas.',
+          tipo: 'erro',
+        });
       } finally {
         setIsFetchingAccounts(false);
       }
@@ -156,7 +160,11 @@ export function TransferScreen() {
     } catch (error: unknown) {
       setIsLoading(false);
       const message = error instanceof Error ? error.message : 'Falha ao transferir valores.';
-      Alert.alert('Erro', message);
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: message,
+        tipo: 'erro',
+      });
     }
   };
 

@@ -9,7 +9,6 @@ import {
   TouchableWithoutFeedback,
   TouchableOpacity,
   Keyboard,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -23,6 +22,7 @@ import {
   AppLogoIcon,
 } from '@/components/finance-login';
 import { AuthService } from '../services/AuthService';
+import { dialog } from '../components/dialogs';
 
 export interface LoginScreenProps {
   onLoginSuccess?: (data: { identifier: string }) => void;
@@ -116,7 +116,11 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
 
       if (!hasHardware || !isEnrolled) {
-        Alert.alert('Indisponível', 'Biometria não está configurada ou disponível neste dispositivo.');
+        dialog.alerta({
+          titulo: 'Indisponível',
+          mensagem: 'Biometria não está configurada ou disponível neste dispositivo.',
+          tipo: 'atencao',
+        });
         return;
       }
 
@@ -134,12 +138,20 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
         if (authResult.success && onLoginSuccess) {
           onLoginSuccess({ identifier: 'teste@orcamentofacil.com' });
         } else {
-          Alert.alert('Erro', authResult.error ?? 'Falha na autenticação biométrica.');
+          dialog.alerta({
+            titulo: 'Erro',
+            mensagem: authResult.error ?? 'Falha na autenticação biométrica.',
+            tipo: 'erro',
+          });
         }
       }
     } catch {
       setIsLoading(false);
-      Alert.alert('Erro', 'Falha ao utilizar a biometria.');
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: 'Falha ao utilizar a biometria.',
+        tipo: 'erro',
+      });
     }
   };
 

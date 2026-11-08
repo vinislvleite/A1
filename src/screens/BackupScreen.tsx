@@ -7,13 +7,14 @@ import {
   TouchableOpacity,
   TextInput,
   Modal,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { BackupService, BackupMetadata, MAX_BACKUPS } from '../services/BackupService';
+import { formatDateTime as formatDateTimeUtil } from '../utils/date';
+import { dialog } from '../components/dialogs';
 
 export function BackupScreen() {
   const [backups, setBackups] = useState<BackupMetadata[]>([]);
@@ -64,44 +65,41 @@ export function BackupScreen() {
 
   const formatDateTime = (iso: string | null): string => {
     if (!iso) return 'Nenhum backup realizado';
-    try {
-      const d = new Date(iso);
-      return d.toLocaleString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } catch {
-      return iso;
-    }
+    return formatDateTimeUtil(iso);
   };
 
   const handleSavePassword = async () => {
     if (backupPassword.trim().length < 4) {
-      Alert.alert('Senha curta', 'Defina uma senha de backup com pelo menos 4 caracteres.');
+      dialog.alerta({
+        titulo: 'Senha curta',
+        mensagem: 'Defina uma senha de backup com pelo menos 4 caracteres.',
+        tipo: 'atencao',
+      });
       return;
     }
     try {
       await backupService.saveBackupPassword(backupPassword.trim());
       setHasSavedPassword(true);
-      Alert.alert(
-        'Senha Configurada',
-        'Sua senha de backup foi salva com segurança. O backup automático diário está ativo.'
-      );
+      dialog.alerta({
+        titulo: 'Senha Configurada',
+        mensagem:
+          'Sua senha de backup foi salva com segurança. O backup automático diário está ativo.',
+        tipo: 'sucesso',
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Erro ao salvar senha.';
-      Alert.alert('Erro', msg);
+      dialog.alerta({ titulo: 'Erro', mensagem: msg, tipo: 'erro' });
     }
   };
 
   const handleBackupNow = async () => {
     if (backupPassword.trim().length < 4) {
-      Alert.alert(
-        'Senha necessária',
-        'Informe uma senha de backup (mínimo 4 caracteres) para criptografar seus dados.'
-      );
+      dialog.alerta({
+        titulo: 'Senha necessária',
+        mensagem:
+          'Informe uma senha de backup (mínimo 4 caracteres) para criptografar seus dados.',
+        tipo: 'atencao',
+      });
       return;
     }
 
@@ -111,10 +109,14 @@ export function BackupScreen() {
       setHasSavedPassword(true);
       await backupService.createBackup(backupPassword.trim(), { isAutoBackup: false });
       await loadBackupState();
-      Alert.alert('Backup Concluído', 'Arquivo criptografado salvo no armazenamento interno.');
+      dialog.alerta({
+        titulo: 'Backup Concluído',
+        mensagem: 'Arquivo criptografado salvo no armazenamento interno.',
+        tipo: 'sucesso',
+      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Falha ao criar backup.';
-      Alert.alert('Erro no Backup', msg);
+      dialog.alerta({ titulo: 'Erro no Backup', mensagem: msg, tipo: 'erro' });
     } finally {
       setIsProcessing(false);
     }
@@ -129,7 +131,11 @@ export function BackupScreen() {
   const handleConfirmInternalRestore = async () => {
     if (!restoreTarget) return;
     if (!restorePasswordInput.trim()) {
-      Alert.alert('Senha obrigatória', 'Informe a senha utilizada para criptografar este backup.');
+      dialog.alerta({
+        titulo: 'Senha obrigatória',
+        mensagem: 'Informe a senha utilizada para criptografar este backup.',
+        tipo: 'atencao',
+      });
       return;
     }
 
@@ -150,7 +156,7 @@ export function BackupScreen() {
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Falha ao restaurar backup.';
-      Alert.alert('Falha na Restauração', msg);
+      dialog.alerta({ titulo: 'Falha na Restauração', mensagem: msg, tipo: 'erro' });
     } finally {
       setIsProcessing(false);
     }
@@ -158,11 +164,19 @@ export function BackupScreen() {
 
   const handleConfirmExternalRestore = async () => {
     if (!externalBackupContent.trim()) {
-      Alert.alert('Arquivo vazio', 'Cole ou selecione o conteúdo do backup criptografado.');
+      dialog.alerta({
+        titulo: 'Arquivo vazio',
+        mensagem: 'Cole ou selecione o conteúdo do backup criptografado.',
+        tipo: 'atencao',
+      });
       return;
     }
     if (!restorePasswordInput.trim()) {
-      Alert.alert('Senha obrigatória', 'Informe a senha do backup.');
+      dialog.alerta({
+        titulo: 'Senha obrigatória',
+        mensagem: 'Informe a senha do backup.',
+        tipo: 'atencao',
+      });
       return;
     }
 
@@ -184,7 +198,7 @@ export function BackupScreen() {
       });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Falha ao restaurar arquivo externo.';
-      Alert.alert('Falha na Restauração', msg);
+      dialog.alerta({ titulo: 'Falha na Restauração', mensagem: msg, tipo: 'erro' });
     } finally {
       setIsProcessing(false);
     }

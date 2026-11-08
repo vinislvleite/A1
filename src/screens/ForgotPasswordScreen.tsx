@@ -9,7 +9,6 @@ import {
   Platform,
   ScrollView,
   ActivityIndicator,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -19,6 +18,7 @@ import { FingerprintIcon } from '@/components/finance-login';
 import { AuthService } from '../services/AuthService';
 import { UserRepository } from '../data/repositories/UserRepository';
 import { SuccessCheckIcon } from '../components/SuccessCheckIcon';
+import { dialog } from '../components/dialogs';
 
 type RecoveryStep = 'identify' | 'verify' | 'new_password' | 'confirmed';
 
@@ -77,10 +77,12 @@ export function ForgotPasswordScreen() {
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
 
       if (!hasHardware || !isEnrolled) {
-        Alert.alert(
-          'Biometria Indisponível',
-          'Biometria não cadastrada neste aparelho. Utilize a confirmação com seu nome completo abaixo.'
-        );
+        dialog.alerta({
+          titulo: 'Biometria Indisponível',
+          mensagem:
+            'Biometria não cadastrada neste aparelho. Utilize a confirmação com seu nome completo abaixo.',
+          tipo: 'atencao',
+        });
         return;
       }
 

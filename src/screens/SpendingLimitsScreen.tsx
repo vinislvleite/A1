@@ -6,13 +6,13 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Alert,
   StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { BudgetRepository } from '../data/repositories/BudgetRepository';
+import { ConfirmModal } from '../components/ConfirmModal';
 
 const WEEKDAYS = [
   { day: 1, label: 'Segunda-feira', short: 'SEG' },
@@ -47,6 +47,12 @@ export function SpendingLimitsScreen() {
   const [maxTxText, setMaxTxText] = useState('');
   const [defaultDailyText, setDefaultDailyText] = useState('');
   const [weekdayTexts, setWeekdayTexts] = useState<Record<number, string>>({});
+  const [feedbackModal, setFeedbackModal] = useState<{
+    title: string;
+    description: string;
+    variant?: 'danger' | 'warning' | 'primary';
+    icon?: keyof typeof Feather.glyphMap;
+  } | null>(null);
 
   const loadLimits = useCallback(async () => {
     const repo = new BudgetRepository();
@@ -92,9 +98,19 @@ export function SpendingLimitsScreen() {
         await repo.setDailyLimit(w.day, val > 0 ? val : 0);
       }
 
-      Alert.alert('Sucesso', 'Tetos de gasto diário e limite por transação atualizados.');
+      setFeedbackModal({
+        title: 'Limites Atualizados',
+        description: 'Tetos de gasto diário e limite por transação salvos com sucesso.',
+        variant: 'primary',
+        icon: 'check-circle',
+      });
     } catch {
-      Alert.alert('Erro', 'Não foi possível salvar os limites.');
+      setFeedbackModal({
+        title: 'Erro',
+        description: 'Não foi possível salvar os limites configurados.',
+        variant: 'danger',
+        icon: 'alert-circle',
+      });
     }
   };
 
@@ -250,6 +266,17 @@ export function SpendingLimitsScreen() {
           <Text style={styles.saveBtnText}>Salvar Limites</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      <ConfirmModal
+        visible={Boolean(feedbackModal)}
+        title={feedbackModal?.title ?? ''}
+        description={feedbackModal?.description ?? ''}
+        variant={feedbackModal?.variant ?? 'primary'}
+        icon={feedbackModal?.icon}
+        singleButton
+        confirmText="Entendido"
+        onConfirm={() => setFeedbackModal(null)}
+      />
     </SafeAreaView>
   );
 }

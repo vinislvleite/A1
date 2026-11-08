@@ -14,7 +14,6 @@ import {
   Share,
   Image,
   Switch,
-  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -23,6 +22,7 @@ import { router, useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import { FinanceButton } from '@/components/finance-login';
 import { TransactionRepository } from '../data/repositories/TransactionRepository';
+import { dialog } from '../components/dialogs';
 import { CategoryRepository } from '../data/repositories/CategoryRepository';
 import { AccountRepository } from '../data/repositories/AccountRepository';
 import { BudgetRepository } from '../data/repositories/BudgetRepository';
@@ -42,6 +42,15 @@ import {
   TRANSACTION_COLOR_PALETTE,
 } from '../domain/entities/Transaction';
 import { SuccessCheckIcon } from '../components/SuccessCheckIcon';
+import { ConfirmModal } from '../components/ConfirmModal';
+import {
+  formatDate,
+  formatDateTime,
+  fromIsoDate,
+  toIsoDate,
+  parseBrDate,
+  formatCurrencyBRL as formatCurrencyBRLUtil,
+} from '../utils/date';
 
 export interface TransactionFormScreenProps {
   id?: string;
@@ -59,12 +68,7 @@ interface SavedTransactionSummary {
   installmentSummary?: string;
 }
 
-const getLocalDateString = (d: Date = new Date()): string => {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+const getLocalDateString = (d: Date = new Date()): string => toIsoDate(d);
 
 const getLocalTimeString = (d: Date = new Date()): string => {
   const hours = String(d.getHours()).padStart(2, '0');
@@ -78,25 +82,9 @@ const formatTimeInput = (raw: string): string => {
   return `${digits.slice(0, 2)}:${digits.slice(2)}`;
 };
 
-const formatBrazilianDateTime = (isoDate: string): string => {
-  try {
-    const d = new Date(isoDate);
-    if (isNaN(d.getTime())) return isoDate;
-    const day = String(d.getDate()).padStart(2, '0');
-    const realMonth = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
-    const capitalizedMonth = realMonth.charAt(0).toUpperCase() + realMonth.slice(1);
-    const year = d.getFullYear();
-    const hours = String(d.getHours()).padStart(2, '0');
-    const minutes = String(d.getMinutes()).padStart(2, '0');
-    return `${day} ${capitalizedMonth} ${year}, ${hours}:${minutes}`;
-  } catch {
-    return isoDate;
-  }
-};
+const formatBrazilianDateTime = (isoDate: string): string => formatDateTime(isoDate);
 
-const formatCurrencyBRL = (val: number): string => {
-  return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-};
+const formatCurrencyBRL = (val: number): string => formatCurrencyBRLUtil(val);
 
 const formatCurrencyInput = (rawText: string): string => {
   const cleanDigits = rawText.replace(/\D/g, '').slice(0, 12);
@@ -136,13 +124,11 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
 
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false);
-  const [showDateModal, setShowDateModal] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
 
   const [notes, setNotes] = useState('');
   const [attachmentUri, setAttachmentUri] = useState<string | null>(null);
   const [isRecurring, setIsRecurring] = useState(false);
-  const [recurrenceDay, setRecurrenceDay] = useState<number>(() => new Date().getDate());
 
   const [isInstallment, setIsInstallment] = useState(false);
   const [installmentCount, setInstallmentCount] = useState<number>(2);
@@ -163,6 +149,7 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
 
   const [manualCategorySelected, setManualCategorySelected] = useState(false);
   const [suggestedCategory, setSuggestedCategory] = useState<Category | null>(null);
+  const [limitWarningData, setLimitWarningData] = useState<{ parsedValue: number; maxLimit: number } | null>(null);
 
   const [errors, setErrors] = useState<{
     value?: string;
@@ -215,7 +202,7 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
               })
             );
             setDescription(existing.description);
-            setDate(existing.date.split('T')[0]);
+            setDate(toIsoDate(fromIsoDate(existing.date)));
             try {
               const d = new Date(existing.date);
               if (!isNaN(d.getTime())) {
@@ -231,7 +218,6 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
             if (existing.notes) setNotes(existing.notes);
             if (existing.attachment_uri) setAttachmentUri(existing.attachment_uri);
             setIsRecurring(Boolean(existing.is_recurring));
-            if (existing.recurrence_day) setRecurrenceDay(existing.recurrence_day);
             if (existing.installment_group_id) {
               setExistingInstallmentGroupId(existing.installment_group_id);
               setExistingInstallmentNumber(existing.installment_number);
@@ -343,11 +329,20 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
   const handlePickFromGallery = async () => {
     setShowImageModal(false);
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('Permissão necessária', 'Precisamos de acesso à sua galeria para selecionar uma foto.');
-        return;
-      }
+      const granted = await dialog.solicitarPermissao({
+        titulo: 'Acesso à Galeria de Fotos',
+        mensagem:
+          'O Orçamento Fácil precisa de permissão para acessar a galeria para que você possa anexar comprovantes de pagamento.',
+        motivo: 'A foto do comprovante é armazenada apenas no seu celular.',
+        icone: 'image',
+        rotuloConfirmar: 'Permitir Acesso',
+        aoPermitir: async () => {
+          const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          return permission.granted;
+        },
+      });
+      if (!granted) return;
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
         allowsEditing: true,
@@ -357,18 +352,31 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
         setAttachmentUri(result.assets[0].uri);
       }
     } catch {
-      Alert.alert('Erro', 'Não foi possível selecionar a imagem.');
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: 'Não foi possível selecionar a imagem.',
+        tipo: 'erro',
+      });
     }
   };
 
   const handleTakePhoto = async () => {
     setShowImageModal(false);
     try {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert('Permissão necessária', 'Precisamos de acesso à sua câmera para fotografar o comprovante.');
-        return;
-      }
+      const granted = await dialog.solicitarPermissao({
+        titulo: 'Acesso à Câmera',
+        mensagem:
+          'O Orçamento Fácil precisa de permissão para usar a câmera para fotografar comprovantes ou cupons fiscais.',
+        motivo: 'A fotografia fica salva localmente junto ao registro da despesa.',
+        icone: 'camera',
+        rotuloConfirmar: 'Abrir Câmera',
+        aoPermitir: async () => {
+          const permission = await ImagePicker.requestCameraPermissionsAsync();
+          return permission.granted;
+        },
+      });
+      if (!granted) return;
+
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         quality: 0.8,
@@ -377,7 +385,11 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
         setAttachmentUri(result.assets[0].uri);
       }
     } catch {
-      Alert.alert('Erro', 'Não foi possível capturar a foto.');
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: 'Não foi possível capturar a foto.',
+        tipo: 'erro',
+      });
     }
   };
 
@@ -424,19 +436,7 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
         const limitsUseCase = new CheckSpendingLimitsUseCase(budgetRepo, transactionRepo, notificationService);
         const txCheck = await limitsUseCase.checkTransactionLimit(parsedValue);
         if (txCheck.exceeded && txCheck.maxLimit) {
-          Alert.alert(
-            'Limite por Transação Acima do Definido',
-            `Esta despesa de ${formatCurrencyBRL(parsedValue)} ultrapassa o seu limite configurado por transação de ${formatCurrencyBRL(txCheck.maxLimit)}. Deseja continuar?`,
-            [
-              { text: 'Voltar', style: 'cancel' },
-              {
-                text: 'Continuar',
-                onPress: () => {
-                  executeSave(true);
-                },
-              },
-            ]
-          );
+          setLimitWarningData({ parsedValue, maxLimit: txCheck.maxLimit });
           return;
         }
       } catch {
@@ -459,11 +459,15 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
         if (!isNaN(parsedM) && parsedM >= 0 && parsedM <= 59) minute = parsedM;
       }
 
-      const [yearStr, monthStr, dayStr] = date.split('T')[0].split('-');
-      const year = parseInt(yearStr, 10);
-      const month = parseInt(monthStr, 10) - 1;
-      const day = parseInt(dayStr, 10);
-      const localDate = new Date(year, month, day, hour, minute, 0);
+      const localBase = fromIsoDate(date);
+      const localDate = new Date(
+        localBase.getFullYear(),
+        localBase.getMonth(),
+        localBase.getDate(),
+        hour,
+        minute,
+        0
+      );
       const formattedDate = localDate.toISOString();
       const targetStatus = isPending ? 'pendente' : 'confirmada';
 
@@ -483,7 +487,7 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
           description: description.trim(),
           date: formattedDate,
           is_recurring: isRecurring,
-          recurrence_day: isRecurring ? recurrenceDay : undefined,
+          recurrence_day: isRecurring ? fromIsoDate(date).getDate() : undefined,
           is_extra_income: type === 'receita' ? isExtraIncome : false,
           income_source: type === 'receita' && isExtraIncome ? incomeSource.trim() || undefined : undefined,
           color_label: colorLabel,
@@ -532,7 +536,7 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
           description: description.trim(),
           date: formattedDate,
           is_recurring: isRecurring,
-          recurrence_day: isRecurring ? recurrenceDay : undefined,
+          recurrence_day: isRecurring ? fromIsoDate(date).getDate() : undefined,
           is_extra_income: type === 'receita' ? isExtraIncome : false,
           income_source: type === 'receita' && isExtraIncome ? incomeSource.trim() || undefined : undefined,
           color_label: colorLabel,
@@ -620,20 +624,12 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
   const selectedCategory = categories.find((cat) => cat.id === categoryId);
   const selectedAccount = accounts.find((acc) => acc.id === accountId);
 
-  const formatDateDisplay = (isoDate: string): string => {
-    const cleanDate = isoDate.split('T')[0];
-    const parts = cleanDate.split('-');
-    if (parts.length === 3) {
-      return `${parts[2]}/${parts[1]}/${parts[0]}`;
-    }
-    return isoDate;
-  };
+  const formatDateDisplay = (isoDate: string): string => formatDate(isoDate);
 
   const adjustDateDays = (days: number) => {
-    const [yearStr, monthStr, dayStr] = date.split('T')[0].split('-');
-    const current = new Date(parseInt(yearStr, 10), parseInt(monthStr, 10) - 1, parseInt(dayStr, 10));
+    const current = fromIsoDate(date);
     current.setDate(current.getDate() + days);
-    setDate(getLocalDateString(current));
+    setDate(toIsoDate(current));
   };
 
   const bgColor = '#0F172A';
@@ -937,7 +933,18 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
                 <Text style={styles.fieldLabel}>Data</Text>
                 <TouchableOpacity
                   style={styles.inputBox}
-                  onPress={() => setShowDateModal(true)}
+                  onPress={async () => {
+                    const chosen = await dialog.datePicker({
+                      titulo: 'Data da Transação',
+                      dataInicial: date,
+                    });
+                    if (chosen) {
+                      const parsed = parseBrDate(chosen);
+                      if (parsed.valid && parsed.isoDate) {
+                        setDate(parsed.isoDate);
+                      }
+                    }
+                  }}
                   activeOpacity={0.7}>
                   <Feather name="calendar" size={16} color="#60A5FA" />
                   <Text style={styles.inputTextValue}>{formatDateDisplay(date)}</Text>
@@ -946,23 +953,22 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
 
               <View style={styles.fieldGroupFlex}>
                 <Text style={styles.fieldLabel}>Hora</Text>
-                <View style={[styles.inputBox, errors.time ? styles.boxError : null]}>
-                  <Feather name="clock" size={16} color="#60A5FA" />
-                  <TextInput
-                    style={styles.textInput}
-                    value={time}
-                    onChangeText={(text: string) => {
-                      const formatted = formatTimeInput(text);
-                      setTime(formatted);
+                <TouchableOpacity
+                  style={[styles.inputBox, errors.time ? styles.boxError : null]}
+                  onPress={async () => {
+                    const chosen = await dialog.timePicker({
+                      titulo: 'Horário da Transação',
+                      horaInicial: time,
+                    });
+                    if (chosen) {
+                      setTime(chosen);
                       if (errors.time) setErrors((prev) => ({ ...prev, time: undefined }));
-                    }}
-                    placeholder="00:00"
-                    placeholderTextColor="#64748B"
-                    keyboardType="numeric"
-                    maxLength={5}
-                    selectionColor="#60A5FA"
-                  />
-                </View>
+                    }
+                  }}
+                  activeOpacity={0.7}>
+                  <Feather name="clock" size={16} color="#60A5FA" />
+                  <Text style={styles.inputTextValue}>{time || '00:00'}</Text>
+                </TouchableOpacity>
                 {errors.time ? (
                   <Text style={styles.fieldErrorText}>{errors.time}</Text>
                 ) : null}
@@ -1121,24 +1127,9 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
               </View>
 
               {isRecurring ? (
-                <View style={styles.recurrenceDayRow}>
-                  <Text style={styles.recurrenceDayLabel}>Dia do mês (1 a 31):</Text>
-                  <View style={styles.recurrenceCounter}>
-                    <TouchableOpacity
-                      style={styles.recurrenceCounterBtn}
-                      onPress={() => setRecurrenceDay((prev) => Math.max(1, prev - 1))}
-                      activeOpacity={0.7}>
-                      <Feather name="minus" size={14} color="#FFFFFF" />
-                    </TouchableOpacity>
-                    <Text style={styles.recurrenceCounterValue}>Dia {recurrenceDay}</Text>
-                    <TouchableOpacity
-                      style={styles.recurrenceCounterBtn}
-                      onPress={() => setRecurrenceDay((prev) => Math.min(31, prev + 1))}
-                      activeOpacity={0.7}>
-                      <Feather name="plus" size={14} color="#FFFFFF" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
+                <Text style={styles.recurrenceDerivedHelperText}>
+                  Repete todo dia {fromIsoDate(date).getDate()}
+                </Text>
               ) : null}
             </View>
 
@@ -1604,55 +1595,6 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
         </Modal>
 
         <Modal
-          visible={showDateModal}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowDateModal(false)}>
-          <TouchableOpacity
-            style={styles.modalBackdrop}
-            activeOpacity={1}
-            onPress={() => setShowDateModal(false)}>
-            <View style={[styles.modalCard, { backgroundColor: cardBg, borderColor }]}>
-              <Text style={[styles.modalTitle, { color: textColor }]}>Selecione a Data</Text>
-              <View style={styles.dateSelectorControls}>
-                <TouchableOpacity
-                  style={[styles.dateQuickButton, { backgroundColor: '#334155' }]}
-                  onPress={() => adjustDateDays(-1)}>
-                  <Feather name="chevron-left" size={16} color={textColor} />
-                  <Text style={[styles.dateQuickButtonText, { color: textColor }]}>-1 dia</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.dateQuickButton, { backgroundColor: '#2563EB' }]}
-                  onPress={() => setDate(new Date().toISOString().split('T')[0])}>
-                  <Text style={[styles.dateQuickButtonText, { color: '#FFFFFF' }]}>Hoje</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.dateQuickButton, { backgroundColor: '#334155' }]}
-                  onPress={() => adjustDateDays(1)}>
-                  <Text style={[styles.dateQuickButtonText, { color: textColor }]}>+1 dia</Text>
-                  <Feather name="chevron-right" size={16} color={textColor} />
-                </TouchableOpacity>
-              </View>
-
-              <View style={[styles.dateDisplayCard, { backgroundColor: '#0F172A' }]}>
-                <Text style={[styles.dateDisplayLabel, { color: mutedTextColor }]}>Data Selecionada</Text>
-                <Text style={[styles.dateDisplayValue, { color: textColor }]}>
-                  {formatDateDisplay(date)}
-                </Text>
-              </View>
-
-              <FinanceButton
-                title="Confirmar Data"
-                variant="primary"
-                onPress={() => setShowDateModal(false)}
-              />
-            </View>
-          </TouchableOpacity>
-        </Modal>
-
-        <Modal
           visible={showImageModal}
           transparent
           animationType="fade"
@@ -1694,6 +1636,21 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
         </Modal>
 
       </KeyboardAvoidingView>
+
+      <ConfirmModal
+        visible={Boolean(limitWarningData)}
+        title="Limite por Transação Excedido"
+        description={`Esta despesa de ${limitWarningData ? formatCurrencyBRL(limitWarningData.parsedValue) : ''} ultrapassa o seu teto configurado de ${limitWarningData ? formatCurrencyBRL(limitWarningData.maxLimit) : ''}. Deseja prosseguir com o lançamento?`}
+        confirmText="Continuar e Salvar"
+        cancelText="Voltar"
+        variant="warning"
+        icon="alert-triangle"
+        onConfirm={() => {
+          setLimitWarningData(null);
+          executeSave(true);
+        }}
+        onCancel={() => setLimitWarningData(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -1965,6 +1922,7 @@ const styles = StyleSheet.create({
   },
   installmentModeBtn: {
     flex: 1,
+    minHeight: 44,
     paddingVertical: 8,
     paddingHorizontal: 10,
     borderRadius: 8,
@@ -1972,6 +1930,7 @@ const styles = StyleSheet.create({
     borderColor: '#334155',
     backgroundColor: '#1E293B',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   installmentModeBtnActive: {
     borderColor: '#2563EB',
@@ -1981,6 +1940,9 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#94A3B8',
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    includeFontPadding: false,
   },
   installmentModeTextActive: {
     color: '#60A5FA',
@@ -2375,6 +2337,13 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 12,
     marginTop: 2,
+  },
+  recurrenceDerivedHelperText: {
+    color: '#60A5FA',
+    fontSize: 13,
+    fontWeight: '500',
+    marginTop: 8,
+    marginLeft: 4,
   },
   recurrenceDayRow: {
     flexDirection: 'row',

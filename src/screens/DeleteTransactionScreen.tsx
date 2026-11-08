@@ -16,23 +16,13 @@ import { CategoryRepository } from '../data/repositories/CategoryRepository';
 import { Transaction } from '../domain/entities/Transaction';
 import { Account } from '../domain/entities/Account';
 import { Category } from '../domain/entities/Category';
+import { formatMoneyValue } from '../components/MoneyText';
+import { formatDateTime as formatDateTimeUtil } from '../utils/date';
 
-const formatCurrency = (val: number): string =>
-  val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const formatCurrency = (val: number): string => formatMoneyValue(val);
 
-const formatDateTime = (isoDate: string): string => {
-  try {
-    const d = new Date(isoDate);
-    const day = String(d.getDate()).padStart(2, '0');
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const year = d.getFullYear();
-    const hours = String(d.getHours()).padStart(2, '0');
-    const minutes = String(d.getMinutes()).padStart(2, '0');
-    return `${day}/${month}/${year} às ${hours}:${minutes}`;
-  } catch {
-    return isoDate;
-  }
-};
+const formatDateTime = (isoDate: string): string =>
+  formatDateTimeUtil(isoDate, { withAt: true });
 
 export function DeleteTransactionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

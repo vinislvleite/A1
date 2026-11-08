@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { formatMoneyValue } from './MoneyText';
+import { formatDate as formatDateUtil } from '../utils/date';
 
 export interface DeleteTransactionData {
   id: string;
@@ -30,22 +32,9 @@ export interface DeleteTransactionModalProps {
   transaction?: DeleteTransactionData | null;
 }
 
-const formatCurrency = (val: number): string =>
-  val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const formatCurrency = (val: number): string => formatMoneyValue(val);
 
-const formatDate = (isoString?: string): string => {
-  if (!isoString) return '';
-  try {
-    const [datePart] = isoString.split('T');
-    const [year, month, day] = datePart.split('-');
-    if (year && month && day) {
-      return `${day}/${month}/${year}`;
-    }
-  } catch {
-    return isoString;
-  }
-  return isoString;
-};
+const formatDate = (isoString?: string): string => formatDateUtil(isoString);
 
 export const DeleteTransactionModal: React.FC<DeleteTransactionModalProps> = ({
   visible,

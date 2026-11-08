@@ -35,8 +35,10 @@ export const migration004Sprint2BlockA: Migration = {
     await db.executeSql('CREATE INDEX IF NOT EXISTS idx_transaction_tags_tx ON transaction_tags(transaction_id);');
 
     try {
-      const [res] = await db.executeSql('SELECT id, tags FROM transactions;');
-      if (res && res.rows) {
+      const [res] = await db.executeSql('SELECT id, tags FROM transactions WHERE tags IS NOT NULL;');
+      if (res && res.rows && res.rows.length > 0) {
+        await db.executeSql('BEGIN TRANSACTION;');
+        const tagMap = new Map<string, string>();
         for (let i = 0; i < res.rows.length; i++) {
           const row = res.rows.item(i) as { id: string; tags?: string };
           if (!row.tags) continue;
@@ -49,22 +51,26 @@ export const migration004Sprint2BlockA: Migration = {
           for (const rawTag of parsed) {
             const cleanTag = String(rawTag).trim().toLowerCase();
             if (!cleanTag) continue;
-            const tagId = `tag_${cleanTag.replace(/[^a-z0-9_-]/g, '_')}`;
-            await db.executeSql('INSERT OR IGNORE INTO tags (id, name) VALUES (?, ?);', [tagId, cleanTag]);
-            const [tagRes] = await db.executeSql('SELECT id FROM tags WHERE name = ?;', [cleanTag]);
-            const resolvedTagId =
-              tagRes && tagRes.rows && tagRes.rows.length > 0
-                ? String((tagRes.rows.item(0) as { id: string }).id)
-                : tagId;
+            let resolvedTagId = tagMap.get(cleanTag);
+            if (!resolvedTagId) {
+              resolvedTagId = `tag_${cleanTag.replace(/[^a-z0-9_-]/g, '_')}`;
+              await db.executeSql('INSERT OR IGNORE INTO tags (id, name) VALUES (?, ?);', [resolvedTagId, cleanTag]);
+              tagMap.set(cleanTag, resolvedTagId);
+            }
             await db.executeSql(
               'INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?, ?);',
               [row.id, resolvedTagId]
             );
           }
         }
+        await db.executeSql('COMMIT;');
       }
     } catch {
-      return;
+      try {
+        await db.executeSql('ROLLBACK;');
+      } catch {
+        return;
+      }
     }
   },
   down: async (_db: SQLiteDatabase): Promise<void> => {},

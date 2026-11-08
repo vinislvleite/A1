@@ -107,3 +107,22 @@ patchFile(
 </manifest>
 `
 );
+
+const testExcludePath = path.join(__dirname, '..', 'node_modules/test-exclude/index.js');
+if (fs.existsSync(testExcludePath)) {
+  let teContent = fs.readFileSync(testExcludePath, 'utf8');
+  if (teContent.includes("const glob = promisify(require('glob'));")) {
+    teContent = teContent.replace(
+      "const glob = promisify(require('glob'));",
+      "const globModule = require('glob'); const glob = typeof globModule === 'function' ? promisify(globModule) : (globModule.glob ? globModule.glob.bind(globModule) : async () => []);"
+    );
+  }
+  if (teContent.includes("const minimatch = require('minimatch');")) {
+    teContent = teContent.replace(
+      "const minimatch = require('minimatch');",
+      "const minimatchModule = require('minimatch'); const minimatch = typeof minimatchModule === 'function' ? minimatchModule : minimatchModule.minimatch;"
+    );
+  }
+  fs.writeFileSync(testExcludePath, teContent, 'utf8');
+}
+

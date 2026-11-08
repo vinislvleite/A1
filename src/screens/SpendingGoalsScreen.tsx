@@ -9,7 +9,6 @@ import {
   TextInput,
   StatusBar,
   ScrollView,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -23,7 +22,9 @@ import { BudgetRepository } from '../data/repositories/BudgetRepository';
 import { CategoryRepository } from '../data/repositories/CategoryRepository';
 import { Category } from '../domain/entities/Category';
 import { formatMoneyValue } from '../components/MoneyText';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { usePrivacyMode } from '../context/PrivacyContext';
+import { MONTH_NAMES } from '../utils/date';
 
 const formatCurrency = (value: number): string => formatMoneyValue(value);
 
@@ -65,10 +66,7 @@ const mapCategoryIcon = (iconName?: string): keyof typeof Feather.glyphMap => {
   return 'tag';
 };
 
-const MONTH_NAMES = [
-  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
-];
+
 
 export function SpendingGoalsScreen() {
   usePrivacyMode();
@@ -86,7 +84,15 @@ export function SpendingGoalsScreen() {
   const [goalAmountInput, setGoalAmountInput] = useState('');
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [categorySearchQuery, setCategorySearchQuery] = useState('');
+  const [goalToDelete, setGoalToDelete] = useState<{ id: string; catName: string } | null>(null);
+  const [isDeletingGoal, setIsDeletingGoal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [feedbackModal, setFeedbackModal] = useState<{
+    title: string;
+    description: string;
+    variant?: 'danger' | 'warning' | 'primary';
+    icon?: keyof typeof Feather.glyphMap;
+  } | null>(null);
 
   const amountInputRef = useRef<TextInput>(null);
 
@@ -104,7 +110,12 @@ export function SpendingGoalsScreen() {
       setGoals(goalsList);
       setAllCategories(categoriesList);
     } catch {
-      Alert.alert('Erro', 'Não foi possível carregar as metas de gastos.');
+      setFeedbackModal({
+        title: 'Erro',
+        description: 'Não foi possível carregar as metas de gastos.',
+        variant: 'danger',
+        icon: 'alert-circle',
+      });
     } finally {
       setIsLoading(false);
     }
@@ -166,11 +177,21 @@ export function SpendingGoalsScreen() {
   const handleSaveGoal = async () => {
     const val = parseCurrencyValue(goalAmountInput);
     if (!selectedCategoryId) {
-      Alert.alert('Atenção', 'Selecione uma categoria para a meta.');
+      setFeedbackModal({
+        title: 'Categoria Obrigatória',
+        description: 'Selecione uma categoria para a meta.',
+        variant: 'warning',
+        icon: 'alert-triangle',
+      });
       return;
     }
     if (val <= 0) {
-      Alert.alert('Atenção', 'Informe um valor limite válido maior que zero.');
+      setFeedbackModal({
+        title: 'Valor Inválido',
+        description: 'Informe um valor limite válido maior que zero.',
+        variant: 'warning',
+        icon: 'alert-triangle',
+      });
       return;
     }
 
@@ -180,33 +201,45 @@ export function SpendingGoalsScreen() {
       setGoalModalVisible(false);
       setGoalAmountInput('');
       await loadData();
+      setFeedbackModal({
+        title: 'Meta Salva',
+        description: 'Meta de gastos por categoria salva com sucesso.',
+        variant: 'primary',
+        icon: 'check-circle',
+      });
     } catch {
-      Alert.alert('Erro', 'Não foi possível salvar a meta de gasto.');
+      setFeedbackModal({
+        title: 'Erro',
+        description: 'Não foi possível salvar a meta de gasto.',
+        variant: 'danger',
+        icon: 'alert-circle',
+      });
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleDeleteGoal = (id: string, catName: string) => {
-    Alert.alert(
-      'Excluir Meta',
-      `Deseja realmente remover a meta de gastos para "${catName}"?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Excluir',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await budgetRepo.deleteCategorySpendingGoal(id);
-              await loadData();
-            } catch {
-              Alert.alert('Erro', 'Não foi possível remover a meta.');
-            }
-          },
-        },
-      ]
-    );
+    setGoalToDelete({ id, catName });
+  };
+
+  const handleConfirmDeleteGoal = async () => {
+    if (!goalToDelete) return;
+    setIsDeletingGoal(true);
+    try {
+      await budgetRepo.deleteCategorySpendingGoal(goalToDelete.id);
+      setGoalToDelete(null);
+      await loadData();
+    } catch {
+      setFeedbackModal({
+        title: 'Erro',
+        description: 'Não foi possível remover a meta.',
+        variant: 'danger',
+        icon: 'alert-circle',
+      });
+    } finally {
+      setIsDeletingGoal(false);
+    }
   };
 
   const selectedCategoryObj = allCategories.find((c) => c.id === selectedCategoryId);
@@ -410,7 +443,7 @@ export function SpendingGoalsScreen() {
 
                 <View style={styles.cardFooter}>
                   <Text style={styles.percentText}>
-                    {g.percentageSpent.toFixed(1)}% do teto utilizado
+                    {g.percentageSpent.toFixed(1).replace('.', ',')}% do teto utilizado
                   </Text>
                   <View style={styles.cardActionsRow}>
                     <TouchableOpacity
@@ -625,6 +658,27 @@ export function SpendingGoalsScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+      <ConfirmModal
+        visible={Boolean(goalToDelete)}
+        title="Excluir Meta de Gastos"
+        description={`Deseja realmente remover a meta de gastos para "${goalToDelete?.catName}"?`}
+        confirmText="Excluir"
+        cancelText="Cancelar"
+        variant="danger"
+        isLoading={isDeletingGoal}
+        onConfirm={handleConfirmDeleteGoal}
+        onCancel={() => setGoalToDelete(null)}
+      />
+      <ConfirmModal
+        visible={Boolean(feedbackModal)}
+        title={feedbackModal?.title ?? ''}
+        description={feedbackModal?.description ?? ''}
+        variant={feedbackModal?.variant ?? 'primary'}
+        icon={feedbackModal?.icon}
+        singleButton
+        confirmText="Entendido"
+        onConfirm={() => setFeedbackModal(null)}
+      />
     </SafeAreaView>
   );
 }

@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   ScrollView,
   StatusBar,
-  Alert,
   type ListRenderItemInfo,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,31 +24,14 @@ import { Account } from '../domain/entities/Account';
 import { Category } from '../domain/entities/Category';
 import { formatMoneyValue } from '../components/MoneyText';
 import { usePrivacyMode } from '../context/PrivacyContext';
-
-const MONTH_NAMES = [
-  'Janeiro',
-  'Fevereiro',
-  'Março',
-  'Abril',
-  'Maio',
-  'Junho',
-  'Julho',
-  'Agosto',
-  'Setembro',
-  'Outubro',
-  'Novembro',
-  'Dezembro',
-];
+import { MONTH_NAMES, formatDateDayMonth } from '../utils/date';
+import { dialog } from '../components/dialogs';
 
 const PAGE_SIZE = 25;
 
 const formatCurrency = (value: number): string => formatMoneyValue(value);
 
-const formatDateShort = (ymd: string): string => {
-  const parts = ymd.substring(0, 10).split('-');
-  if (parts.length !== 3) return ymd;
-  return `${parts[2]}/${parts[1]}`;
-};
+const formatDateShort = (ymd: string): string => formatDateDayMonth(ymd);
 
 const mapCategoryIcon = (iconName?: string): keyof typeof Feather.glyphMap => {
   if (!iconName) return 'credit-card';
@@ -97,7 +79,7 @@ export function StatementScreen() {
       setVisibleCount(PAGE_SIZE);
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Falha ao carregar extrato.';
-      Alert.alert('Erro', msg);
+      dialog.alerta({ titulo: 'Erro', mensagem: msg, tipo: 'erro' });
     } finally {
       setIsLoading(false);
     }

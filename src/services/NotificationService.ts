@@ -1,5 +1,6 @@
-import { Alert } from 'react-native';
+import { dialog } from '../components/dialogs/DialogManager';
 import { DatabaseManager } from '../data/database/SQLiteDatabase';
+import { formatDate, formatCurrencyBRL } from '../utils/date';
 
 export interface NotificationPayload {
   id: string;
@@ -110,7 +111,11 @@ export class NotificationService implements INotificationService {
       deliveredAt: new Date().toISOString(),
     });
 
-    Alert.alert(payload.title, payload.message);
+    dialog.alerta({
+      titulo: payload.title,
+      mensagem: payload.message,
+      tipo: 'informacao',
+    });
   }
 
   public async scheduleNotification(payload: NotificationPayload): Promise<void> {
@@ -163,10 +168,7 @@ export class NotificationService implements INotificationService {
       dueDate.getTime() - Math.max(0, params.reminderDaysBefore) * 24 * 60 * 60 * 1000
     );
 
-    const formattedVal = params.value.toLocaleString('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    });
+    const formattedVal = formatCurrencyBRL(params.value);
 
     const dueText =
       params.reminderDaysBefore === 0
@@ -226,10 +228,7 @@ export class NotificationService implements INotificationService {
 
     NotificationService.notifiedThresholds.add(notificationId);
 
-    const formattedVal = params.value.toLocaleString('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    });
+    const formattedVal = formatCurrencyBRL(params.value);
 
     const dueLabel =
       params.daysUntilDue === 0
@@ -271,7 +270,7 @@ export class NotificationService implements INotificationService {
       NotificationService.notifiedThresholds.add(warningKey);
 
       const title = 'Limite de Orçamento Excedido!';
-      const message = `Você ultrapassou o limite de ${params.categoryName} neste mês. Total gasto: ${params.totalSpent.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} de ${params.limitValue.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}.`;
+      const message = `Você ultrapassou o limite de ${params.categoryName} neste mês. Total gasto: ${formatCurrencyBRL(params.totalSpent)} de ${formatCurrencyBRL(params.limitValue)}.`;
 
       await this.sendLocalNotification({
         id: exceededKey,
@@ -318,10 +317,7 @@ export class NotificationService implements INotificationService {
 
     NotificationService.notifiedThresholds.add(dueKey);
 
-    const formattedAmount = params.invoiceAmount.toLocaleString('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    });
+    const formattedAmount = formatCurrencyBRL(params.invoiceAmount);
     const dueLabel =
       params.daysUntilDue === 0
         ? 'vence hoje'
@@ -357,17 +353,11 @@ export class NotificationService implements INotificationService {
 
     NotificationService.notifiedThresholds.add(dayKey);
 
-    const spentStr = params.totalDaySpent.toLocaleString('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    });
-    const limitStr = params.dailyLimit.toLocaleString('pt-BR', {
-      style: 'currency',
-      currency: 'BRL',
-    });
+    const spentStr = formatCurrencyBRL(params.totalDaySpent);
+    const limitStr = formatCurrencyBRL(params.dailyLimit);
 
     const title = 'Teto de Gasto Diário Ultrapassado!';
-    const message = `Seus gastos em ${params.dateYmd.substring(0, 10)} atingiram ${spentStr}, ultrapassando o teto diário de ${limitStr}.`;
+    const message = `Seus gastos em ${formatDate(params.dateYmd)} atingiram ${spentStr}, ultrapassando o teto diário de ${limitStr}.`;
 
     await this.sendLocalNotification({
       id: dayKey,

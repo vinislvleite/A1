@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
-  Alert,
   StatusBar,
   type ListRenderItemInfo,
 } from 'react-native';
@@ -20,7 +19,11 @@ import {
 } from '../domain/usecases/EventBudgetUseCase';
 import { BudgetRepository } from '../data/repositories/BudgetRepository';
 import { formatMoneyValue } from '../components/MoneyText';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { usePrivacyMode } from '../context/PrivacyContext';
+import { formatDate, parseBrDate, formatDateInputMask } from '../utils/date';
+import { FinanceInput } from '../components/finance-login';
+import { dialog } from '../components/dialogs';
 
 const formatCurrency = (value: number): string => formatMoneyValue(value);
 
@@ -42,8 +45,12 @@ export function EventsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [name, setName] = useState('');
   const [limitText, setLimitText] = useState('');
-  const [startDate, setStartDate] = useState(new Date().toISOString().substring(0, 10));
-  const [endDate, setEndDate] = useState(new Date().toISOString().substring(0, 10));
+  const [startDate, setStartDate] = useState(() => formatDate(new Date()));
+  const [endDate, setEndDate] = useState(() => formatDate(new Date()));
+  const [startDateError, setStartDateError] = useState<string | undefined>(undefined);
+  const [endDateError, setEndDateError] = useState<string | undefined>(undefined);
+  const [eventToDelete, setEventToDelete] = useState<EventBudgetProgress | null>(null);
+  const [isDeletingEvent, setIsDeletingEvent] = useState(false);
 
   const loadEvents = useCallback(async () => {
     try {
@@ -52,7 +59,7 @@ export function EventsScreen() {
       const list = await useCase.listEventsWithProgress();
       setEvents(list);
     } catch {
-      Alert.alert('Erro', 'Não foi possível carregar os eventos.');
+      dialog.alerta({ titulo: 'Erro', mensagem: 'Não foi possível carregar os eventos.', tipo: 'erro' });
     } finally {
       setIsLoading(false);
     }
@@ -65,53 +72,80 @@ export function EventsScreen() {
   );
 
   const handleCreateEvent = async () => {
+    setStartDateError(undefined);
+    setEndDateError(undefined);
+
     if (!name.trim()) {
-      Alert.alert('Campo obrigatório', 'Informe o nome do evento (ex: Viagem Férias).');
+      dialog.alerta({
+        titulo: 'Campo obrigatório',
+        mensagem: 'Informe o nome do evento (ex: Viagem Férias).',
+        tipo: 'atencao',
+      });
       return;
     }
     const val = parseFloat(limitText.replace(/\./g, '').replace(',', '.')) || 0;
     if (val <= 0) {
-      Alert.alert('Valor inválido', 'Informe um valor de limite maior que zero.');
+      dialog.alerta({
+        titulo: 'Valor inválido',
+        mensagem: 'Informe um valor de limite maior que zero.',
+        tipo: 'atencao',
+      });
       return;
     }
-    if (!startDate.trim() || !endDate.trim()) {
-      Alert.alert('Período obrigatório', 'Informe as datas de início e término do evento.');
+
+    const startParsed = parseBrDate(startDate);
+    if (!startParsed.valid) {
+      setStartDateError(startParsed.error);
       return;
     }
+
+    const endParsed = parseBrDate(endDate);
+    if (!endParsed.valid) {
+      setEndDateError(endParsed.error);
+      return;
+    }
+
+    if (endParsed.isoDate! < startParsed.isoDate!) {
+      setEndDateError('A data de término deve ser igual ou posterior à data de início');
+      return;
+    }
+
     try {
       const useCase = new EventBudgetUseCase();
       await useCase.createEvent({
         name: name.trim(),
         limit_value: val,
-        start_date: startDate.trim(),
-        end_date: endDate.trim(),
+        start_date: startParsed.isoDate!,
+        end_date: endParsed.isoDate!,
       });
       setName('');
       setLimitText('');
+      setStartDate(formatDate(new Date()));
+      setEndDate(formatDate(new Date()));
       await loadEvents();
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Erro ao criar evento.';
-      Alert.alert('Atenção', msg);
+      dialog.alerta({ titulo: 'Atenção', mensagem: msg, tipo: 'atencao' });
     }
   };
 
-  const handleDeleteEvent = (id: string) => {
-    Alert.alert(
-      'Excluir Evento',
-      'Tem certeza de que deseja excluir este evento? As transações vinculadas continuarão registradas normalmente.',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Excluir',
-          style: 'destructive',
-          onPress: async () => {
-            const repo = new BudgetRepository();
-            await repo.deleteEvent(id);
-            await loadEvents();
-          },
-        },
-      ]
-    );
+  const handleDeleteEvent = (item: EventBudgetProgress) => {
+    setEventToDelete(item);
+  };
+
+  const handleConfirmDeleteEvent = async () => {
+    if (!eventToDelete) return;
+    setIsDeletingEvent(true);
+    try {
+      const repo = new BudgetRepository();
+      await repo.deleteEvent(eventToDelete.event.id);
+      setEventToDelete(null);
+      await loadEvents();
+    } catch {
+      dialog.alerta({ titulo: 'Erro', mensagem: 'Não foi possível excluir o evento.', tipo: 'erro' });
+    } finally {
+      setIsDeletingEvent(false);
+    }
   };
 
   const renderItem = ({ item }: ListRenderItemInfo<EventBudgetProgress>) => {
@@ -150,13 +184,13 @@ export function EventsScreen() {
             <View style={styles.eventDateRow}>
               <Feather name="calendar" size={12} color="#94A3B8" />
               <Text style={styles.eventDates}>
-                {item.event.start_date} até {item.event.end_date} • {item.transactions.length} gasto(s)
+                {formatDate(item.event.start_date)} até {formatDate(item.event.end_date)} • {item.transactions.length} gasto(s)
               </Text>
             </View>
           </View>
           <TouchableOpacity
             style={styles.deleteBtn}
-            onPress={() => handleDeleteEvent(item.event.id)}
+            onPress={() => handleDeleteEvent(item)}
             activeOpacity={0.7}>
             <Feather name="trash-2" size={15} color="#EF4444" />
           </TouchableOpacity>
@@ -260,32 +294,67 @@ export function EventsScreen() {
 
             <View style={styles.dateRow}>
               <View style={styles.dateField}>
-                <Text style={styles.fieldLabel}>Data de Início</Text>
-                <View style={styles.inputBox}>
-                  <Feather name="calendar" size={16} color="#60A5FA" />
-                  <TextInput
-                    style={styles.inputText}
-                    value={startDate}
-                    onChangeText={setStartDate}
-                    placeholder="AAAA-MM-DD"
-                    placeholderTextColor="#64748B"
-                    selectionColor="#60A5FA"
-                  />
-                </View>
+                <FinanceInput
+                  label="Data de Início"
+                  value={startDate}
+                  onChangeText={(t) => {
+                    setStartDate(formatDateInputMask(t));
+                    if (startDateError) setStartDateError(undefined);
+                  }}
+                  placeholder="DD/MM/AAAA"
+                  keyboardType="numeric"
+                  maxLength={10}
+                  error={startDateError}
+                  leftIcon={
+                    <TouchableOpacity
+                      onPress={async () => {
+                        const chosen = await dialog.datePicker({
+                          titulo: 'Data de Início do Evento',
+                          dataInicial: startDate,
+                        });
+                        if (chosen) {
+                          setStartDate(chosen);
+                          if (startDateError) setStartDateError(undefined);
+                        }
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Feather name="calendar" size={16} color="#60A5FA" />
+                    </TouchableOpacity>
+                  }
+                />
               </View>
               <View style={styles.dateField}>
-                <Text style={styles.fieldLabel}>Data de Término</Text>
-                <View style={styles.inputBox}>
-                  <Feather name="calendar" size={16} color="#60A5FA" />
-                  <TextInput
-                    style={styles.inputText}
-                    value={endDate}
-                    onChangeText={setEndDate}
-                    placeholder="AAAA-MM-DD"
-                    placeholderTextColor="#64748B"
-                    selectionColor="#60A5FA"
-                  />
-                </View>
+                <FinanceInput
+                  label="Data de Término"
+                  value={endDate}
+                  onChangeText={(t) => {
+                    setEndDate(formatDateInputMask(t));
+                    if (endDateError) setEndDateError(undefined);
+                  }}
+                  placeholder="DD/MM/AAAA"
+                  keyboardType="numeric"
+                  maxLength={10}
+                  error={endDateError}
+                  leftIcon={
+                    <TouchableOpacity
+                      onPress={async () => {
+                        const chosen = await dialog.datePicker({
+                          titulo: 'Data de Término do Evento',
+                          dataInicial: endDate,
+                          dataMinima: startDate,
+                        });
+                        if (chosen) {
+                          setEndDate(chosen);
+                          if (endDateError) setEndDateError(undefined);
+                        }
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Feather name="calendar" size={16} color="#60A5FA" />
+                    </TouchableOpacity>
+                  }
+                />
               </View>
             </View>
 
@@ -313,6 +382,17 @@ export function EventsScreen() {
             </View>
           )
         }
+      />
+      <ConfirmModal
+        visible={Boolean(eventToDelete)}
+        title="Excluir Evento"
+        description={`Tem certeza de que deseja excluir o evento "${eventToDelete?.event.name}"? As transações vinculadas continuarão registradas normalmente.`}
+        confirmText="Excluir"
+        cancelText="Cancelar"
+        variant="danger"
+        isLoading={isDeletingEvent}
+        onConfirm={handleConfirmDeleteEvent}
+        onCancel={() => setEventToDelete(null)}
       />
     </SafeAreaView>
   );

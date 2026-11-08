@@ -16,10 +16,12 @@ export function formatMoneyValue(
     return `${prefix}${HIDDEN_MONEY_MASK}${suffix}`;
   }
 
-  const formatted = value.toLocaleString('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  });
+  const isNegative = value < 0;
+  const abs = Math.abs(value);
+  const parts = abs.toFixed(2).split('.');
+  const intPart = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const decPart = parts[1];
+  const formatted = `${isNegative ? '-' : ''}R$ ${intPart},${decPart}`;
   return `${prefix}${formatted}${suffix}`;
 }
 

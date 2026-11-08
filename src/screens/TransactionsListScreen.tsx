@@ -6,7 +6,6 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   Modal,
   ScrollView,
@@ -31,6 +30,8 @@ import { Account } from '../domain/entities/Account';
 import { DeleteTransactionModal } from '../components/DeleteTransactionModal';
 import { formatMoneyValue } from '../components/MoneyText';
 import { usePrivacyMode } from '../context/PrivacyContext';
+import { toIsoDate, fromIsoDate, formatDate, MONTH_NAMES } from '../utils/date';
+import { dialog } from '../components/dialogs';
 
 const PAGE_SIZE = 20;
 
@@ -80,10 +81,11 @@ const parseCurrencyValue = (formattedText: string): number => {
 
 const getDateGroupLabel = (isoDate: string): string => {
   const now = new Date();
-  const todayStr = now.toISOString().split('T')[0];
-  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-  const yesterdayStr = yesterday.toISOString().split('T')[0];
-  const itemDateStr = isoDate.split('T')[0];
+  const todayStr = toIsoDate(now);
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 12, 0, 0);
+  const yesterdayStr = toIsoDate(yesterday);
+  const itemDate = fromIsoDate(isoDate);
+  const itemDateStr = toIsoDate(itemDate);
 
   if (itemDateStr === todayStr) {
     return 'HOJE';
@@ -92,23 +94,20 @@ const getDateGroupLabel = (isoDate: string): string => {
     return 'ONTEM';
   }
 
-  const parts = itemDateStr.split('-');
-  if (parts.length === 3) {
-    const year = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1;
-    const day = parseInt(parts[2], 10);
-    const d = new Date(year, month, day);
-    const monthName = d.toLocaleDateString('pt-BR', { month: 'long' }).toUpperCase();
+  const day = itemDate.getDate();
+  const monthIndex = itemDate.getMonth();
+  if (monthIndex >= 0 && monthIndex < MONTH_NAMES.length) {
+    const monthName = MONTH_NAMES[monthIndex].toUpperCase();
     return `${day} DE ${monthName}`;
   }
 
-  return itemDateStr;
+  return formatDate(itemDate);
 };
 
 const formatItemSub = (accountName: string, categoryName: string, isoDate: string): string => {
-  if (isoDate && isoDate.includes('T')) {
+  if (isoDate && (isoDate.includes('T') || isoDate.includes(' '))) {
     try {
-      const d = new Date(isoDate);
+      const d = fromIsoDate(isoDate);
       const hours = String(d.getHours()).padStart(2, '0');
       const minutes = String(d.getMinutes()).padStart(2, '0');
       return `${accountName} · ${categoryName} · ${hours}:${minutes}`;
@@ -396,7 +395,11 @@ export function TransactionsListScreen() {
         prev.map((it) => (it.id === itemId ? { ...it, status: 'confirmada' } : it))
       );
     } catch {
-      Alert.alert('Erro', 'Não foi possível confirmar a transação.');
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: 'Não foi possível confirmar a transação.',
+        tipo: 'erro',
+      });
     }
   };
 
@@ -444,7 +447,11 @@ export function TransactionsListScreen() {
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Erro ao excluir transação.';
-      Alert.alert('Erro', message);
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: message,
+        tipo: 'erro',
+      });
     } finally {
       setIsDeleting(false);
     }
@@ -472,7 +479,7 @@ export function TransactionsListScreen() {
             styles.transactionCard,
             item.colorLabel
               ? { borderLeftWidth: 4, borderLeftColor: item.colorLabel }
-              : null,
+              : { borderLeftWidth: 1, borderLeftColor: '#334155' },
             isPending ? styles.transactionCardPending : null,
           ]}
           activeOpacity={0.7}

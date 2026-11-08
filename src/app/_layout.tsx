@@ -13,6 +13,7 @@ import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { LogService } from '@/services/LogService';
 import { seedDemoUser } from '@/data/database/seed';
 import { PrivacyProvider } from '@/context/PrivacyContext';
+import { DialogProvider } from '@/components/dialogs';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -35,40 +36,42 @@ export default function RootLayout() {
 
   return (
     <PrivacyProvider>
-      <ThemeProvider value={DarkTheme}>
-        <AnimatedSplashOverlay />
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="index" />
-          <Stack.Screen name="home" />
-          <Stack.Screen name="login" />
-          <Stack.Screen name="starter-home" />
-          <Stack.Screen name="explore" />
-          <Stack.Screen name="transaction-form" />
-          <Stack.Screen name="transactions-list" />
-          <Stack.Screen name="register" />
-          <Stack.Screen name="forgot-password" />
-          <Stack.Screen name="account" />
-          <Stack.Screen name="accounts" />
-          <Stack.Screen name="account-form" />
-          <Stack.Screen name="card-detail" />
-          <Stack.Screen name="statement" />
-          <Stack.Screen name="transfer" />
-          <Stack.Screen name="budgets" />
-          <Stack.Screen name="zero-based-budget" />
-          <Stack.Screen name="events" />
-          <Stack.Screen name="spending-limits" />
-          <Stack.Screen name="spending-goals" />
-          <Stack.Screen name="bills" />
-          <Stack.Screen name="settings" />
-          <Stack.Screen name="backup" />
-          <Stack.Screen name="categories" />
-          <Stack.Screen name="category-history" />
-          <Stack.Screen name="transaction-detail" />
-          <Stack.Screen name="data-cleanup" />
-          <Stack.Screen name="privacy-policy" />
-          <Stack.Screen name="delete-transaction" />
-        </Stack>
-      </ThemeProvider>
+      <DialogProvider>
+        <ThemeProvider value={DarkTheme}>
+          <AnimatedSplashOverlay />
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Screen name="index" />
+            <Stack.Screen name="home" />
+            <Stack.Screen name="login" />
+            <Stack.Screen name="starter-home" />
+            <Stack.Screen name="explore" />
+            <Stack.Screen name="transaction-form" />
+            <Stack.Screen name="transactions-list" />
+            <Stack.Screen name="register" />
+            <Stack.Screen name="forgot-password" />
+            <Stack.Screen name="account" />
+            <Stack.Screen name="accounts" />
+            <Stack.Screen name="account-form" />
+            <Stack.Screen name="card-detail" />
+            <Stack.Screen name="statement" />
+            <Stack.Screen name="transfer" />
+            <Stack.Screen name="budgets" />
+            <Stack.Screen name="zero-based-budget" />
+            <Stack.Screen name="events" />
+            <Stack.Screen name="spending-limits" />
+            <Stack.Screen name="spending-goals" />
+            <Stack.Screen name="bills" />
+            <Stack.Screen name="settings" />
+            <Stack.Screen name="backup" />
+            <Stack.Screen name="categories" />
+            <Stack.Screen name="category-history" />
+            <Stack.Screen name="transaction-detail" />
+            <Stack.Screen name="data-cleanup" />
+            <Stack.Screen name="privacy-policy" />
+            <Stack.Screen name="delete-transaction" />
+          </Stack>
+        </ThemeProvider>
+      </DialogProvider>
     </PrivacyProvider>
   );
 }

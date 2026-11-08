@@ -17,40 +17,21 @@ import { Category } from '../domain/entities/Category';
 import { Transaction, CategoryMonthlyTotal } from '../domain/entities/Transaction';
 import { formatMoneyValue } from '../components/MoneyText';
 import { usePrivacyMode } from '../context/PrivacyContext';
+import { MONTH_NAMES_SHORT, formatDate } from '../utils/date';
 
 export interface CategoryHistoryScreenProps {
   id: string;
 }
-
-const MONTH_NAMES = [
-  'Jan',
-  'Fev',
-  'Mar',
-  'Abr',
-  'Mai',
-  'Jun',
-  'Jul',
-  'Ago',
-  'Set',
-  'Out',
-  'Nov',
-  'Dez',
-];
 
 const formatCurrency = (val: number): string => formatMoneyValue(val);
 
 const formatYearMonthLabel = (yearMonth: string): string => {
   const [y, m] = yearMonth.split('-').map(Number);
   if (!y || !m || m < 1 || m > 12) return yearMonth;
-  return `${MONTH_NAMES[m - 1]}/${y}`;
+  return `${MONTH_NAMES_SHORT[m - 1]}/${y}`;
 };
 
-const formatShortDate = (isoDate: string): string => {
-  const part = isoDate.split('T')[0];
-  const [y, m, d] = part.split('-');
-  if (y && m && d) return `${d}/${m}/${y}`;
-  return part;
-};
+const formatShortDate = (isoDate: string): string => formatDate(isoDate);
 
 export function CategoryHistoryScreen({ id }: CategoryHistoryScreenProps) {
   usePrivacyMode();
@@ -208,7 +189,9 @@ export function CategoryHistoryScreen({ id }: CategoryHistoryScreenProps) {
                               styles.variationText,
                               variationPct > 0 ? styles.variationUp : styles.variationDown,
                             ]}>
-                            {variationPct > 0 ? `+${variationPct}%` : `${variationPct}%`}
+                            {variationPct > 0
+                              ? `+${String(variationPct).replace('.', ',')}%`
+                              : `${String(variationPct).replace('.', ',')}%`}
                           </Text>
                         ) : null}
                         <Text style={styles.barAmountText}>{formatCurrency(item.total)}</Text>

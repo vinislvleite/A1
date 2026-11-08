@@ -6,7 +6,6 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Modal,
   TextInput,
   StatusBar,
@@ -29,7 +28,9 @@ import {
 import { BudgetRepository } from '../data/repositories/BudgetRepository';
 import { BudgetMode, BudgetPeriod } from '../domain/entities/Budget';
 import { formatMoneyValue } from '../components/MoneyText';
+import { ConfirmModal } from '../components/ConfirmModal';
 import { usePrivacyMode } from '../context/PrivacyContext';
+import { MONTH_NAMES } from '../utils/date';
 
 const formatCurrency = (value: number): string => formatMoneyValue(value);
 
@@ -77,20 +78,7 @@ const getProgressBarColor = (percentage: number): string => {
   return '#10B981';
 };
 
-const MONTH_NAMES = [
-  'Janeiro',
-  'Fevereiro',
-  'Março',
-  'Abril',
-  'Maio',
-  'Junho',
-  'Julho',
-  'Agosto',
-  'Setembro',
-  'Outubro',
-  'Novembro',
-  'Dezembro',
-];
+
 
 export function BudgetsScreen() {
   usePrivacyMode();
@@ -114,6 +102,15 @@ export function BudgetsScreen() {
   const [showGoalCategoryPicker, setShowGoalCategoryPicker] = useState(false);
   const goalAmountInputRef = useRef<TextInput>(null);
 
+  const [budgetToDelete, setBudgetToDelete] = useState<{ id: string; categoryName: string } | null>(null);
+  const [isDeletingBudget, setIsDeletingBudget] = useState(false);
+  const [feedbackModal, setFeedbackModal] = useState<{
+    title: string;
+    description: string;
+    variant?: 'danger' | 'warning' | 'primary';
+    icon?: keyof typeof Feather.glyphMap;
+  } | null>(null);
+
   const budgetUseCase = new CalculateBudgetProgressUseCase();
   const goalsUseCase = new CategorySpendingGoalsUseCase();
   const budgetRepo = new BudgetRepository();
@@ -130,7 +127,12 @@ export function BudgetsScreen() {
       setSummary(res);
       setGoals(goalsList);
     } catch {
-      Alert.alert('Erro', 'Não foi possível carregar os orçamentos.');
+      setFeedbackModal({
+        title: 'Erro',
+        description: 'Não foi possível carregar os orçamentos.',
+        variant: 'danger',
+        icon: 'alert-circle',
+      });
     } finally {
       setIsLoading(false);
     }
@@ -193,7 +195,12 @@ export function BudgetsScreen() {
     if (activeTab === 'mensal' && budgetMode === 'percentual') {
       const pct = parseFloat(percentageInput.replace(',', '.')) || 0;
       if (pct <= 0 || pct > 100) {
-        Alert.alert('Atenção', 'Informe um percentual entre 1% e 100%.');
+        setFeedbackModal({
+          title: 'Percentual Inválido',
+          description: 'Informe um percentual entre 1% e 100%.',
+          variant: 'warning',
+          icon: 'alert-triangle',
+        });
         return;
       }
       setIsSaving(true);
@@ -211,9 +218,20 @@ export function BudgetsScreen() {
         );
         setSelectedCategory(null);
         await loadData();
+        setFeedbackModal({
+          title: 'Orçamento Salvo',
+          description: 'Limite percentual da categoria salvo com sucesso.',
+          variant: 'primary',
+          icon: 'check-circle',
+        });
       } catch (error: unknown) {
         const message = error instanceof Error ? error.message : 'Falha ao salvar orçamento.';
-        Alert.alert('Erro', message);
+        setFeedbackModal({
+          title: 'Erro',
+          description: message,
+          variant: 'danger',
+          icon: 'alert-circle',
+        });
       } finally {
         setIsSaving(false);
       }
@@ -222,7 +240,12 @@ export function BudgetsScreen() {
 
     const parsedVal = parseCurrencyValue(limitInput);
     if (parsedVal <= 0) {
-      Alert.alert('Atenção', 'Informe um valor limite maior que zero.');
+      setFeedbackModal({
+        title: 'Valor Inválido',
+        description: 'Informe um valor limite maior que zero.',
+        variant: 'warning',
+        icon: 'alert-triangle',
+      });
       return;
     }
 
@@ -241,36 +264,57 @@ export function BudgetsScreen() {
       );
       setSelectedCategory(null);
       await loadData();
+      setFeedbackModal({
+        title: 'Orçamento Salvo',
+        description: 'Limite de orçamento salvo com sucesso.',
+        variant: 'primary',
+        icon: 'check-circle',
+      });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Falha ao salvar orçamento.';
-      Alert.alert('Erro', message);
+      setFeedbackModal({
+        title: 'Erro',
+        description: message,
+        variant: 'danger',
+        icon: 'alert-circle',
+      });
     } finally {
       setIsSaving(false);
     }
   };
 
-  const handleDeleteBudget = async (budgetId: string) => {
-    Alert.alert('Remover Limite', 'Deseja remover o orçamento desta categoria?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Remover',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await budgetRepo.delete(budgetId);
-            loadData();
-          } catch {
-            Alert.alert('Erro', 'Falha ao remover orçamento.');
-          }
-        },
-      },
-    ]);
+  const handleDeleteBudget = (budgetId: string, categoryName: string) => {
+    setBudgetToDelete({ id: budgetId, categoryName });
+  };
+
+  const handleConfirmDeleteBudget = async () => {
+    if (!budgetToDelete) return;
+    setIsDeletingBudget(true);
+    try {
+      await budgetRepo.delete(budgetToDelete.id);
+      setBudgetToDelete(null);
+      await loadData();
+    } catch {
+      setFeedbackModal({
+        title: 'Erro',
+        description: 'Falha ao remover orçamento.',
+        variant: 'danger',
+        icon: 'alert-circle',
+      });
+    } finally {
+      setIsDeletingBudget(false);
+    }
   };
 
   const handleSaveGoal = async () => {
     const val = parseCurrencyValue(goalMaxInput);
     if (!goalCategoryId || val <= 0) {
-      Alert.alert('Atenção', 'Selecione uma categoria e informe um valor máximo maior que zero.');
+      setFeedbackModal({
+        title: 'Campos Obrigatórios',
+        description: 'Selecione uma categoria e informe um valor máximo maior que zero.',
+        variant: 'warning',
+        icon: 'alert-triangle',
+      });
       return;
     }
     try {
@@ -278,8 +322,19 @@ export function BudgetsScreen() {
       setGoalModalVisible(false);
       setGoalMaxInput('');
       await loadData();
+      setFeedbackModal({
+        title: 'Meta Salva',
+        description: 'Meta de gastos por categoria cadastrada com sucesso.',
+        variant: 'primary',
+        icon: 'check-circle',
+      });
     } catch {
-      Alert.alert('Erro', 'Não foi possível salvar a meta de gasto.');
+      setFeedbackModal({
+        title: 'Erro',
+        description: 'Não foi possível salvar a meta de gasto.',
+        variant: 'danger',
+        icon: 'alert-circle',
+      });
     }
   };
 
@@ -779,8 +834,9 @@ export function BudgetsScreen() {
                   style={styles.btnDeleteBudget}
                   onPress={() => {
                     const idToDelete = selectedCategory.budgetId;
+                    const catName = selectedCategory.categoryName;
                     setSelectedCategory(null);
-                    handleDeleteBudget(idToDelete);
+                    handleDeleteBudget(idToDelete, catName);
                   }}
                   activeOpacity={0.7}>
                   <Text style={styles.btnDeleteBudgetText}>Remover Limite</Text>
@@ -924,6 +980,28 @@ export function BudgetsScreen() {
         </TouchableOpacity>
       </Modal>
 
+      <ConfirmModal
+        visible={Boolean(budgetToDelete)}
+        title="Remover Limite"
+        description={`Deseja realmente remover o orçamento da categoria "${budgetToDelete?.categoryName}"?`}
+        confirmText="Remover"
+        cancelText="Cancelar"
+        variant="danger"
+        isLoading={isDeletingBudget}
+        onConfirm={handleConfirmDeleteBudget}
+        onCancel={() => setBudgetToDelete(null)}
+      />
+
+      <ConfirmModal
+        visible={Boolean(feedbackModal)}
+        title={feedbackModal?.title ?? ''}
+        description={feedbackModal?.description ?? ''}
+        variant={feedbackModal?.variant ?? 'primary'}
+        icon={feedbackModal?.icon}
+        singleButton
+        confirmText="Entendido"
+        onConfirm={() => setFeedbackModal(null)}
+      />
     </SafeAreaView>
   );
 }

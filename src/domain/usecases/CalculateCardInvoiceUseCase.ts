@@ -3,6 +3,16 @@ import { Transaction } from '../entities/Transaction';
 import { AccountRepository } from '../../data/repositories/AccountRepository';
 import { TransactionRepository } from '../../data/repositories/TransactionRepository';
 import { NotificationService } from '../../services/NotificationService';
+import { fromIsoDate, toIsoDate } from '../../utils/date';
+
+export interface ClosedInvoiceInfo {
+  cycleStartDate: string;
+  cycleEndDate: string;
+  dueDate: string;
+  amount: number;
+  daysUntilDue: number;
+  isDueSoon: boolean;
+}
 
 export interface CardInvoiceCycleInfo {
   cycleStartDate: string;
@@ -16,6 +26,7 @@ export interface CardInvoiceCycleInfo {
   availableLimit: number;
   cycleTransactions: Transaction[];
   recentTransactions: Transaction[];
+  closedInvoice?: ClosedInvoiceInfo | null;
 }
 
 export interface CalculateCardInvoiceResult extends CardInvoiceCycleInfo {
@@ -51,51 +62,12 @@ function diffDaysYmd(fromYmd: string, toYmd: string): number {
   return Math.round((utc2 - utc1) / (1000 * 60 * 60 * 24));
 }
 
-export function calculateCardInvoiceCycle(params: {
-  creditLimit: number;
-  closingDay: number;
-  dueDay: number;
-  transactions: Transaction[];
-  referenceDateIso?: string;
-}): CardInvoiceCycleInfo {
-  const refYmd = (params.referenceDateIso ?? new Date().toISOString()).substring(0, 10);
-  const [refYear, refMonthOneBased, refDay] = refYmd.split('-').map(Number);
-  const refMonthZero = refMonthOneBased - 1;
-
-  const closingDay = Math.min(Math.max(1, Math.trunc(params.closingDay || 10)), 31);
-  const dueDay = Math.min(Math.max(1, Math.trunc(params.dueDay || 17)), 31);
-  const creditLimit = Math.max(0, Number(params.creditLimit || 0));
-
-  const closingDayInRefMonth = Math.min(closingDay, getDaysInMonth(refYear, refMonthZero));
-
-  let closeYear = refYear;
-  let closeMonthZero = refMonthZero;
-
-  if (refDay > closingDayInRefMonth) {
-    closeMonthZero += 1;
-    if (closeMonthZero > 11) {
-      closeMonthZero = 0;
-      closeYear += 1;
-    }
-  } else if (dueDay <= closingDay && refDay <= dueDay) {
-    closeMonthZero -= 1;
-    if (closeMonthZero < 0) {
-      closeMonthZero = 11;
-      closeYear -= 1;
-    }
-  }
-
-  let prevCloseYear = closeYear;
-  let prevCloseMonthZero = closeMonthZero - 1;
-  if (prevCloseMonthZero < 0) {
-    prevCloseMonthZero = 11;
-    prevCloseYear -= 1;
-  }
-
-  const prevCloseYmd = formatYmd(prevCloseYear, prevCloseMonthZero, closingDay);
-  const cycleStartDate = addDaysYmd(prevCloseYmd, 1);
-  const cycleEndDate = formatYmd(closeYear, closeMonthZero, closingDay);
-
+function calculateDueDate(
+  closeYear: number,
+  closeMonthZero: number,
+  closingDay: number,
+  dueDay: number
+): string {
   let dueYear = closeYear;
   let dueMonthZero = closeMonthZero;
   if (dueDay <= closingDay) {
@@ -105,9 +77,62 @@ export function calculateCardInvoiceCycle(params: {
       dueYear += 1;
     }
   }
-  const dueDate = formatYmd(dueYear, dueMonthZero, dueDay);
+  return formatYmd(dueYear, dueMonthZero, dueDay);
+}
 
-  const confirmedTxs = params.transactions.filter((tx) => tx.status === 'confirmada');
+export function calculateCardInvoiceCycle(params: {
+  creditLimit: number;
+  closingDay: number;
+  dueDay: number;
+  transactions: Transaction[];
+  referenceDateIso?: string;
+}): CardInvoiceCycleInfo {
+  const refDate = params.referenceDateIso ? fromIsoDate(params.referenceDateIso) : new Date();
+  const refYmd = toIsoDate(refDate);
+  const [refYear, refMonthOneBased, refDay] = refYmd.split('-').map(Number);
+  const refMonthZero = refMonthOneBased - 1;
+
+  const closingDay = Math.min(Math.max(1, Math.trunc(params.closingDay || 10)), 31);
+  const dueDay = Math.min(Math.max(1, Math.trunc(params.dueDay || 17)), 31);
+  const creditLimit = Math.max(0, Number(params.creditLimit || 0));
+
+  let closeYear = refYear;
+  let closeMonthZero = refMonthZero;
+
+  if (refDay > closingDay) {
+    closeMonthZero += 1;
+    if (closeMonthZero > 11) {
+      closeMonthZero = 0;
+      closeYear += 1;
+    }
+  }
+
+  const cycleEndDate = formatYmd(closeYear, closeMonthZero, closingDay);
+
+  let prevCloseYear = closeYear;
+  let prevCloseMonthZero = closeMonthZero - 1;
+  if (prevCloseMonthZero < 0) {
+    prevCloseMonthZero = 11;
+    prevCloseYear -= 1;
+  }
+  const prevCloseEndDate = formatYmd(prevCloseYear, prevCloseMonthZero, closingDay);
+  const cycleStartDate = addDaysYmd(prevCloseEndDate, 1);
+
+  const dueDate = calculateDueDate(closeYear, closeMonthZero, closingDay, dueDay);
+
+  let prevPrevCloseYear = prevCloseYear;
+  let prevPrevCloseMonthZero = prevCloseMonthZero - 1;
+  if (prevPrevCloseMonthZero < 0) {
+    prevPrevCloseMonthZero = 11;
+    prevPrevCloseYear -= 1;
+  }
+  const prevPrevCloseEndDate = formatYmd(prevPrevCloseYear, prevPrevCloseMonthZero, closingDay);
+  const prevCycleStartDate = addDaysYmd(prevPrevCloseEndDate, 1);
+  const prevDueDate = calculateDueDate(prevCloseYear, prevCloseMonthZero, closingDay, dueDay);
+
+  const confirmedTxs = params.transactions.filter(
+    (tx) => (tx.status ?? 'confirmada') === 'confirmada'
+  );
 
   const cycleTransactions = confirmedTxs
     .filter((tx) => {
@@ -128,6 +153,37 @@ export function calculateCardInvoiceCycle(params: {
 
   const currentInvoiceAmount = Number(Math.max(0, cycleExpense - cycleIncome).toFixed(2));
 
+  let closedInvoice: ClosedInvoiceInfo | null = null;
+  const isBetweenClosingAndDue = refYmd > prevCloseEndDate && refYmd <= prevDueDate;
+  if (isBetweenClosingAndDue) {
+    const closedTxs = confirmedTxs.filter((tx) => {
+      const txDay = tx.date.substring(0, 10);
+      return txDay >= prevCycleStartDate && txDay <= prevCloseEndDate;
+    });
+    let closedExpense = 0;
+    let closedIncome = 0;
+    for (const tx of closedTxs) {
+      if (tx.type === 'despesa') {
+        closedExpense += tx.value;
+      } else {
+        closedIncome += tx.value;
+      }
+    }
+    const closedInvoiceAmount = Number(Math.max(0, closedExpense - closedIncome).toFixed(2));
+    const closedDaysUntilDue = diffDaysYmd(refYmd, prevDueDate);
+    const closedIsDueSoon =
+      closedDaysUntilDue >= 0 && closedDaysUntilDue <= 3 && closedInvoiceAmount > 0;
+
+    closedInvoice = {
+      cycleStartDate: prevCycleStartDate,
+      cycleEndDate: prevCloseEndDate,
+      dueDate: prevDueDate,
+      amount: closedInvoiceAmount,
+      daysUntilDue: closedDaysUntilDue,
+      isDueSoon: closedIsDueSoon,
+    };
+  }
+
   let totalConfirmedExpense = 0;
   let totalConfirmedIncome = 0;
   for (const tx of confirmedTxs) {
@@ -140,8 +196,14 @@ export function calculateCardInvoiceCycle(params: {
 
   const usedLimit = Number(Math.max(0, totalConfirmedExpense - totalConfirmedIncome).toFixed(2));
   const availableLimit = Number(Math.max(0, creditLimit - usedLimit).toFixed(2));
-  const daysUntilDue = diffDaysYmd(refYmd, dueDate);
-  const isDueSoon = daysUntilDue >= 0 && daysUntilDue <= 3 && currentInvoiceAmount > 0;
+
+  let daysUntilDue = diffDaysYmd(refYmd, dueDate);
+  let isDueSoon = daysUntilDue >= 0 && daysUntilDue <= 3 && currentInvoiceAmount > 0;
+
+  if (closedInvoice && closedInvoice.amount > 0) {
+    daysUntilDue = closedInvoice.daysUntilDue;
+    isDueSoon = closedInvoice.isDueSoon;
+  }
 
   const recentTransactions = [...confirmedTxs]
     .sort((a, b) => b.date.localeCompare(a.date))
@@ -159,6 +221,7 @@ export function calculateCardInvoiceCycle(params: {
     availableLimit,
     cycleTransactions,
     recentTransactions,
+    closedInvoice,
   };
 }
 
@@ -197,11 +260,20 @@ export class CalculateCardInvoiceUseCase {
     });
 
     if (notifyIfDueSoon && cycleInfo.isDueSoon) {
+      const targetDueDate =
+        cycleInfo.closedInvoice && cycleInfo.closedInvoice.isDueSoon
+          ? cycleInfo.closedInvoice.dueDate
+          : cycleInfo.dueDate;
+      const targetAmount =
+        cycleInfo.closedInvoice && cycleInfo.closedInvoice.isDueSoon
+          ? cycleInfo.closedInvoice.amount
+          : cycleInfo.currentInvoiceAmount;
+
       await this.notificationService.checkAndNotifyCardDueSoon({
         accountId: account.id,
         accountName: account.name,
-        invoiceAmount: cycleInfo.currentInvoiceAmount,
-        dueDateIso: cycleInfo.dueDate,
+        invoiceAmount: targetAmount,
+        dueDateIso: targetDueDate,
         daysUntilDue: cycleInfo.daysUntilDue,
       });
     }

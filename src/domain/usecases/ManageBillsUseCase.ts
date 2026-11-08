@@ -265,8 +265,6 @@ export class ManageBillsUseCase {
     for (const bill of bills) {
       const payment = paymentMap.get(bill.id) ?? null;
 
-      // Se a conta fixa foi criada em um mês/ano posterior ao visualizado
-      // e não tem pagamento registrado neste mês, ela NÃO deve aparecer em meses anteriores.
       if (!payment && bill.created_at) {
         const createdDate = new Date(bill.created_at);
         if (!Number.isNaN(createdDate.getTime())) {

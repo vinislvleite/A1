@@ -40,15 +40,17 @@ export function calculateRevolvingInterest(params: {
   const firstMonthInterest = Number((balance * rate).toFixed(2));
 
   let installmentAmount = 0;
+  let totalPaid = 0;
   if (rate === 0) {
     installmentAmount = Number((balance / months).toFixed(2));
+    totalPaid = Number(balance.toFixed(2));
   } else {
     const factor = Math.pow(1 + rate, months);
     const rawPmt = balance * ((rate * factor) / (factor - 1));
     installmentAmount = Number(rawPmt.toFixed(2));
+    totalPaid = Number((rawPmt * months).toFixed(2));
   }
 
-  const totalPaid = Number((installmentAmount * months).toFixed(2));
   const totalInterest = Number(Math.max(0, totalPaid - balance).toFixed(2));
 
   const schedule: RevolvingInstallmentItem[] = [];

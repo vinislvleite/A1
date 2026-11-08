@@ -7,7 +7,6 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   StatusBar,
@@ -17,6 +16,14 @@ import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { AccountRepository } from '../data/repositories/AccountRepository';
 import { AccountType } from '../domain/entities/Account';
+import { FinanceInput } from '../components/finance-login';
+import { dialog } from '../components/dialogs';
+import {
+  formatDateInputMask,
+  parseBrDate,
+  getNextOccurrenceForDay,
+  extractDayFromBrDate,
+} from '../utils/date';
 
 export interface AccountFormScreenProps {
   id?: string;
@@ -104,8 +111,8 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
   const [type, setType] = useState<AccountType>('corrente');
   const [initialBalance, setInitialBalance] = useState('');
   const [creditLimit, setCreditLimit] = useState('');
-  const [closingDay, setClosingDay] = useState('10');
-  const [dueDay, setDueDay] = useState('17');
+  const [closingDate, setClosingDate] = useState(() => getNextOccurrenceForDay(10));
+  const [dueDate, setDueDate] = useState(() => getNextOccurrenceForDay(17));
   const initialBalanceInputRef = useRef<TextInput>(null);
   const creditLimitInputRef = useRef<TextInput>(null);
   const [color, setColor] = useState(AVAILABLE_COLORS[0]);
@@ -115,8 +122,8 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
   const [errors, setErrors] = useState<{
     name?: string;
     creditLimit?: string;
-    closingDay?: string;
-    dueDay?: string;
+    closingDate?: string;
+    dueDate?: string;
   }>({});
 
   const accountRepo = new AccountRepository();
@@ -148,14 +155,18 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
             );
           }
           if (account.closing_day) {
-            setClosingDay(String(account.closing_day));
+            setClosingDate(getNextOccurrenceForDay(account.closing_day));
           }
           if (account.due_day) {
-            setDueDay(String(account.due_day));
+            setDueDate(getNextOccurrenceForDay(account.due_day));
           }
         }
       } catch {
-        Alert.alert('Erro', 'Não foi possível carregar os dados da conta.');
+        dialog.alerta({
+          titulo: 'Erro',
+          mensagem: 'Não foi possível carregar os dados da conta.',
+          tipo: 'erro',
+        });
       } finally {
         setIsFetching(false);
       }
@@ -168,8 +179,8 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
     const newErrors: {
       name?: string;
       creditLimit?: string;
-      closingDay?: string;
-      dueDay?: string;
+      closingDate?: string;
+      dueDate?: string;
     } = {};
 
     if (!name.trim()) {
@@ -181,13 +192,18 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
       if (parsedLimit <= 0) {
         newErrors.creditLimit = 'Informe o limite total do cartão';
       }
-      const parsedClosing = parseInt(closingDay.replace(/\D/g, ''), 10);
-      if (Number.isNaN(parsedClosing) || parsedClosing < 1 || parsedClosing > 31) {
-        newErrors.closingDay = 'Informe um dia de fechamento entre 1 e 31';
+      const parsedClosing = parseBrDate(closingDate);
+      if (!parsedClosing.valid) {
+        newErrors.closingDate = parsedClosing.error || 'Data de fechamento inválida (DD/MM/AAAA)';
       }
-      const parsedDue = parseInt(dueDay.replace(/\D/g, ''), 10);
-      if (Number.isNaN(parsedDue) || parsedDue < 1 || parsedDue > 31) {
-        newErrors.dueDay = 'Informe um dia de vencimento entre 1 e 31';
+      const parsedDue = parseBrDate(dueDate);
+      if (!parsedDue.valid) {
+        newErrors.dueDate = parsedDue.error || 'Data de vencimento inválida (DD/MM/AAAA)';
+      }
+      if (parsedClosing.valid && parsedDue.valid && parsedClosing.isoDate && parsedDue.isoDate) {
+        if (parsedDue.isoDate <= parsedClosing.isoDate) {
+          newErrors.dueDate = 'A data de vencimento deve ser posterior à data de fechamento';
+        }
       }
     }
 
@@ -203,9 +219,9 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
       const parsedBalance = parseCurrencyValue(initialBalance);
       const parsedLimit = type === 'cartao_credito' ? parseCurrencyValue(creditLimit) : 0;
       const parsedClosing =
-        type === 'cartao_credito' ? parseInt(closingDay.replace(/\D/g, ''), 10) : null;
+        type === 'cartao_credito' ? extractDayFromBrDate(closingDate) : null;
       const parsedDue =
-        type === 'cartao_credito' ? parseInt(dueDay.replace(/\D/g, ''), 10) : null;
+        type === 'cartao_credito' ? extractDayFromBrDate(dueDate) : null;
 
       if (id) {
         await accountRepo.update(id, {
@@ -240,7 +256,11 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
     } catch (error: unknown) {
       setIsLoading(false);
       const message = error instanceof Error ? error.message : 'Falha ao salvar conta.';
-      Alert.alert('Erro', message);
+      dialog.alerta({
+        titulo: 'Erro',
+        mensagem: message,
+        tipo: 'erro',
+      });
     }
   };
 
@@ -429,56 +449,86 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
                 ) : null}
               </View>
 
-              <View style={styles.rowTwoColumns}>
-                <View style={styles.halfFieldGroup}>
-                  <Text style={styles.fieldLabel}>Dia de Fechamento</Text>
-                  <View style={[styles.inputBox, errors.closingDay ? styles.inputBoxError : null]}>
-                    <Feather name="calendar" size={18} color="#60A5FA" />
-                    <TextInput
-                      style={styles.textInput}
-                      value={closingDay}
-                      onChangeText={(text) => {
-                        setClosingDay(text.replace(/\D/g, '').slice(0, 2));
-                        if (errors.closingDay) {
-                          setErrors((prev) => ({ ...prev, closingDay: undefined }));
+              <View style={styles.fieldGroup}>
+                <FinanceInput
+                  label="Data do próximo fechamento"
+                  value={closingDate}
+                  onChangeText={(text) => {
+                    setClosingDate(formatDateInputMask(text));
+                    if (errors.closingDate) {
+                      setErrors((prev) => ({ ...prev, closingDate: undefined }));
+                    }
+                  }}
+                  placeholder="DD/MM/AAAA"
+                  keyboardType="numeric"
+                  maxLength={10}
+                  error={errors.closingDate}
+                  leftIcon={
+                    <TouchableOpacity
+                      onPress={async () => {
+                        const chosen = await dialog.datePicker({
+                          titulo: 'Data do Próximo Fechamento',
+                          dataInicial: closingDate,
+                        });
+                        if (chosen) {
+                          setClosingDate(chosen);
+                          if (errors.closingDate) {
+                            setErrors((prev) => ({ ...prev, closingDate: undefined }));
+                          }
                         }
                       }}
-                      placeholder="Ex: 10"
-                      placeholderTextColor="#64748B"
-                      keyboardType="number-pad"
-                      maxLength={2}
-                      selectionColor="#60A5FA"
-                    />
-                  </View>
-                  {errors.closingDay ? (
-                    <Text style={styles.errorText}>{errors.closingDay}</Text>
-                  ) : null}
-                </View>
+                      activeOpacity={0.7}
+                    >
+                      <Feather name="calendar" size={18} color="#60A5FA" />
+                    </TouchableOpacity>
+                  }
+                />
+                {extractDayFromBrDate(closingDate) !== null ? (
+                  <Text style={styles.recurrenceHelperText}>
+                    Repete todo dia {extractDayFromBrDate(closingDate)}
+                  </Text>
+                ) : null}
+              </View>
 
-                <View style={styles.halfFieldGroup}>
-                  <Text style={styles.fieldLabel}>Dia de Vencimento</Text>
-                  <View style={[styles.inputBox, errors.dueDay ? styles.inputBoxError : null]}>
-                    <Feather name="clock" size={18} color="#F59E0B" />
-                    <TextInput
-                      style={styles.textInput}
-                      value={dueDay}
-                      onChangeText={(text) => {
-                        setDueDay(text.replace(/\D/g, '').slice(0, 2));
-                        if (errors.dueDay) {
-                          setErrors((prev) => ({ ...prev, dueDay: undefined }));
+              <View style={styles.fieldGroup}>
+                <FinanceInput
+                  label="Data do próximo vencimento"
+                  value={dueDate}
+                  onChangeText={(text) => {
+                    setDueDate(formatDateInputMask(text));
+                    if (errors.dueDate) {
+                      setErrors((prev) => ({ ...prev, dueDate: undefined }));
+                    }
+                  }}
+                  placeholder="DD/MM/AAAA"
+                  keyboardType="numeric"
+                  maxLength={10}
+                  error={errors.dueDate}
+                  leftIcon={
+                    <TouchableOpacity
+                      onPress={async () => {
+                        const chosen = await dialog.datePicker({
+                          titulo: 'Data do Próximo Vencimento',
+                          dataInicial: dueDate,
+                        });
+                        if (chosen) {
+                          setDueDate(chosen);
+                          if (errors.dueDate) {
+                            setErrors((prev) => ({ ...prev, dueDate: undefined }));
+                          }
                         }
                       }}
-                      placeholder="Ex: 17"
-                      placeholderTextColor="#64748B"
-                      keyboardType="number-pad"
-                      maxLength={2}
-                      selectionColor="#60A5FA"
-                    />
-                  </View>
-                  {errors.dueDay ? (
-                    <Text style={styles.errorText}>{errors.dueDay}</Text>
-                  ) : null}
-                </View>
+                      activeOpacity={0.7}
+                    >
+                      <Feather name="clock" size={18} color="#F59E0B" />
+                    </TouchableOpacity>
+                  }
+                />
+                {extractDayFromBrDate(dueDate) !== null ? (
+                  <Text style={styles.recurrenceHelperText}>
+                    Repete todo dia {extractDayFromBrDate(dueDate)}
+                  </Text>
+                ) : null}
               </View>
             </>
           ) : null}
@@ -636,6 +686,12 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#EF4444',
     fontSize: 12,
+  },
+  recurrenceHelperText: {
+    color: '#60A5FA',
+    fontSize: 12,
+    marginTop: 4,
+    fontWeight: '500',
   },
   typeSelector: {
     flexDirection: 'row',

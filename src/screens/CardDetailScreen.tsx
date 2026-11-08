@@ -8,7 +8,6 @@ import {
   TextInput,
   Modal,
   ActivityIndicator,
-  Alert,
   StatusBar,
   ScrollView,
   type ListRenderItemInfo,
@@ -30,14 +29,12 @@ import { Transaction } from '../domain/entities/Transaction';
 import { Category } from '../domain/entities/Category';
 import { formatMoneyValue } from '../components/MoneyText';
 import { usePrivacyMode } from '../context/PrivacyContext';
+import { formatDate } from '../utils/date';
+import { dialog } from '../components/dialogs';
 
 const formatCurrency = (value: number): string => formatMoneyValue(value);
 
-const formatDateShort = (ymd: string): string => {
-  const parts = ymd.substring(0, 10).split('-');
-  if (parts.length !== 3) return ymd;
-  return `${parts[2]}/${parts[1]}/${parts[0]}`;
-};
+const formatDateShort = (ymd: string): string => formatDate(ymd);
 
 const formatCurrencyInput = (rawText: string): string => {
   const cleanDigits = rawText.replace(/\D/g, '').slice(0, 12);
@@ -101,7 +98,7 @@ export function CardDetailScreen() {
       setSimBalanceText(formatValueFromNumber(defaultBalance));
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Falha ao carregar fatura do cartão.';
-      Alert.alert('Erro', msg);
+      dialog.alerta({ titulo: 'Erro', mensagem: msg, tipo: 'erro' });
     } finally {
       setIsLoading(false);
     }
@@ -146,7 +143,7 @@ export function CardDetailScreen() {
       setSimResult(result);
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : 'Verifique os valores informados.';
-      Alert.alert('Dados Inválidos', msg);
+      dialog.alerta({ titulo: 'Dados Inválidos', mensagem: msg, tipo: 'atencao' });
     }
   };
 
@@ -281,6 +278,25 @@ export function CardDetailScreen() {
                   </Text>
                 </View>
               </View>
+
+              {invoiceData.closedInvoice ? (
+                <View style={styles.closedInvoiceCard}>
+                  <View style={styles.closedInvoiceRow}>
+                    <View>
+                      <Text style={styles.closedInvoiceLabel}>Fatura Fechada</Text>
+                      <Text style={styles.closedInvoiceValue}>
+                        {formatCurrency(invoiceData.closedInvoice.amount)}
+                      </Text>
+                    </View>
+                    <View style={styles.closedInvoiceDueBadge}>
+                      <Feather name="calendar" size={12} color="#94A3B8" />
+                      <Text style={styles.closedInvoiceDueText}>
+                        Venc. {formatDateShort(invoiceData.closedInvoice.dueDate)}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              ) : null}
 
               {invoiceData.isDueSoon ? (
                 <View style={styles.dueAlertBanner}>
@@ -552,6 +568,44 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 10,
+  },
+  closedInvoiceCard: {
+    backgroundColor: 'rgba(15, 23, 42, 0.65)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.25)',
+  },
+  closedInvoiceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  closedInvoiceLabel: {
+    fontSize: 12,
+    color: '#94A3B8',
+    fontWeight: '500',
+  },
+  closedInvoiceValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#F8FAFC',
+    marginTop: 2,
+  },
+  closedInvoiceDueBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#334155',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  closedInvoiceDueText: {
+    fontSize: 12,
+    color: '#F8FAFC',
+    fontWeight: '600',
   },
   dueBadgeAlert: {
     backgroundColor: '#DC2626',
