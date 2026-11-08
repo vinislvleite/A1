@@ -23,23 +23,23 @@ Ele funciona **100% offline**, armazenando todos os registros contábeis exclusi
 
 ## Funcionalidades Principais
 
-### 💳 Cartões de Crédito & Contas
+### Cartões de Crédito e Contas
 - **Ciclo e Fatura Inteligente:** Cálculo preciso de fechamento inclusivo, vencimento, fatura aberta e limite disponível/utilizado.
 - **Parcelamento Automático:** Divisão de compras em até 48 parcelas mensais (`1/N` a `N/N`) com distribuição automática nos ciclos futuros.
 - **Múltiplas Contas & Extrato Consolidado:** Contas correntes, poupanças e cartões com saldo acumulado progressivo linha a linha e transferências atômicas.
 - **Simulador de Rotativo:** Cálculo imediato de juros compostos sobre o saldo devedor do cartão.
 
-### 📊 Orçamentos & Planejamento
+### Orçamentos e Planejamento
 - **Modelos Avançados de Orçamento:** Mensal, anual, flexível (ajuste por receita), base zero (Zero-Based) e por eventos (viagens, festas).
 - **Tetos de Gastos:** Limite diário parametrizável por dia da semana e teto individual por transação com alerta imediato.
 - **Metas por Categoria:** Painel com indicadores visuais de progresso e status em tempo real.
 
-### 🔄 Recorrência & Contas a Pagar
+### Recorrência e Contas a Pagar
 - **Lançamentos Recorrentes:** Projeção e duplicação automática de receitas e despesas mensais com catch-up.
 - **Central de Contas Fixas & Boletos:** Calendário de vencimentos com status (*Pendente*, *Pago*, *Vencendo*) e lembretes antecipados.
 - **Classificação Inteligente:** Tags livres personalizadas, etiquetas visuais coloridas e autossugestão de categorias por palavras-chave.
 
-### 🛡️ Privacidade, Segurança & Sistema
+### Privacidade, Segurança e Sistema
 - **100% Offline & Criptografia:** Persistência relacional em SQLite local com hash SHA-256 e HMAC.
 - **Modo Cortina de Privacidade:** Ocultação e revelação instantânea de todos os saldos e valores monetários com um toque.
 - **Backup Criptografado com Rotação:** Backups diários automáticos (retenção de 7 dias) e importação/exportação externa de arquivo `.json`.
@@ -147,9 +147,9 @@ No terminal do Metro, pressione:
 
 | Sprint | Foco Principal | Histórias | Status |
 |---|---|:---:|:---:|
-| **Sprint 1** | **Fundação:** Autenticação biométrica, contas, transações, categorias e extrato | US01 a US26 | ✅ Concluída |
-| **Sprint 2** | **Inteligência:** Recorrência, parcelamento, faturas, tetos, backup e modo sensorial | US27 a US52 | ✅ Concluída |
-| **Sprint 3** | **Análise Avançada:** Gráficos, relatórios anuais, projeções de saldo e multi-moeda | US53 a US78 | ⏳ Planejada |
+| **Sprint 1** | **Fundação:** Autenticação biométrica, contas, transações, categorias e extrato | US01 a US26 | Concluída |
+| **Sprint 2** | **Inteligência:** Recorrência, parcelamento, faturas, tetos, backup e modo sensorial | US27 a US52 | Concluída |
+| **Sprint 3** | **Análise Avançada:** Gráficos, relatórios anuais, projeções de saldo e multi-moeda | US53 a US78 | Planejada |
 
 <details>
 <summary><b>Ver detalhamento da Sprint 1 (US01 a US26)</b></summary>
