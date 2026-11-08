@@ -50,6 +50,7 @@
     "typescript": "~6.0.3"
   },
   "scripts": {
+    "postinstall": "node ./scripts/patch-android-libs.js",
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
@@ -68,6 +69,11 @@
         ]
       }
     }
+  },
+  "overrides": {
+    "decode-uri-component": "^0.5.1",
+    "minimatch": "^11.0.5",
+    "glob": "^14.0.4"
   },
   "private": true
 }

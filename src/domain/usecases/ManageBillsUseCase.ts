@@ -14,21 +14,31 @@ import { NotificationService } from '../../services/NotificationService';
 
 export function calculateBillStatusAndNextDue(
   bill: RecurringBill,
-  referenceDate: Date,
-  payment?: BillPayment | null
+  referenceDate: Date = new Date(),
+  payment?: BillPayment | null,
+  targetMonth?: number,
+  targetYear?: number
 ): BillWithStatus {
-  const refYear = referenceDate.getFullYear();
-  const refMonth = referenceDate.getMonth() + 1;
-  const refDay = referenceDate.getDate();
+  const evalYear = targetYear ?? referenceDate.getFullYear();
+  const evalMonth = targetMonth ?? (referenceDate.getMonth() + 1);
 
-  const refStart = new Date(refYear, refMonth - 1, refDay, 0, 0, 0, 0);
-  const maxDayCurrent = new Date(refYear, refMonth, 0).getDate();
+  const refStart = new Date(
+    referenceDate.getFullYear(),
+    referenceDate.getMonth(),
+    referenceDate.getDate(),
+    0,
+    0,
+    0,
+    0
+  );
+
+  const maxDayCurrent = new Date(evalYear, evalMonth, 0).getDate();
   const effectiveDueDayCurrent = Math.min(Math.max(1, bill.due_day), maxDayCurrent);
-  const dueCurrentMonth = new Date(refYear, refMonth - 1, effectiveDueDayCurrent, 0, 0, 0, 0);
+  const dueCurrentMonth = new Date(evalYear, evalMonth - 1, effectiveDueDayCurrent, 0, 0, 0, 0);
 
   if (payment) {
-    const nextMonth = refMonth === 12 ? 1 : refMonth + 1;
-    const nextYear = refMonth === 12 ? refYear + 1 : refYear;
+    const nextMonth = evalMonth === 12 ? 1 : evalMonth + 1;
+    const nextYear = evalMonth === 12 ? evalYear + 1 : evalYear;
     const maxDayNext = new Date(nextYear, nextMonth, 0).getDate();
     const effectiveDueDayNext = Math.min(Math.max(1, bill.due_day), maxDayNext);
     const dueNextMonth = new Date(nextYear, nextMonth - 1, effectiveDueDayNext, 0, 0, 0, 0);
@@ -90,6 +100,7 @@ export interface CreateBillInput {
   category_id: string;
   account_id?: string;
   notes?: string;
+  created_at?: string;
 }
 
 export class ManageBillsUseCase {
@@ -141,7 +152,7 @@ export class ManageBillsUseCase {
       account_id: input.account_id,
       notes: input.notes?.trim() || undefined,
       is_active: true,
-      created_at: new Date().toISOString(),
+      created_at: input.created_at ?? (referenceDate ?? new Date()).toISOString(),
     };
 
     await this.billRepo.create(bill);
@@ -225,9 +236,7 @@ export class ManageBillsUseCase {
     year: number,
     referenceDate?: Date
   ): Promise<BillWithStatus[]> {
-    const refDate =
-      referenceDate ??
-      new Date(year, month - 1, new Date().getDate(), 12, 0, 0);
+    const today = referenceDate ?? new Date();
 
     const [bills, payments, categories, accounts] = await Promise.all([
       this.billRepo.findAllActive(),
@@ -255,13 +264,31 @@ export class ManageBillsUseCase {
 
     for (const bill of bills) {
       const payment = paymentMap.get(bill.id) ?? null;
-      const statusItem = calculateBillStatusAndNextDue(bill, refDate, payment);
+
+      // Se a conta fixa foi criada em um mês/ano posterior ao visualizado
+      // e não tem pagamento registrado neste mês, ela NÃO deve aparecer em meses anteriores.
+      if (!payment && bill.created_at) {
+        const createdDate = new Date(bill.created_at);
+        if (!Number.isNaN(createdDate.getTime())) {
+          const createdYear = createdDate.getFullYear();
+          const createdMonth = createdDate.getMonth() + 1;
+          if (year < createdYear || (year === createdYear && month < createdMonth)) {
+            continue;
+          }
+        }
+      }
+
+      const statusItem = calculateBillStatusAndNextDue(bill, today, payment, month, year);
       statusItem.categoryName = categoryMap.get(bill.category_id) ?? 'Geral';
       if (bill.account_id) {
         statusItem.accountName = accountMap.get(bill.account_id);
       }
 
-      if (!payment) {
+      const currentYear = today.getFullYear();
+      const currentMonth = today.getMonth() + 1;
+      const isPastMonth = year < currentYear || (year === currentYear && month < currentMonth);
+
+      if (!payment && !isPastMonth) {
         await this.notificationService.scheduleMonthlyBillReminder({
           billId: bill.id,
           billName: bill.name,

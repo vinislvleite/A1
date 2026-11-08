@@ -468,7 +468,7 @@ export function HomeScreen() {
           activeOpacity={0.75}
           onPress={() => router.push('/bills' as unknown as Parameters<typeof router.push>[0])}>
           <Feather name="calendar" size={16} color="#F59E0B" />
-          <Text style={styles.quickShortcutText}>Contas Fixas</Text>
+          <Text style={styles.quickShortcutText}>Fixas</Text>
         </TouchableOpacity>
 
         <TouchableOpacity

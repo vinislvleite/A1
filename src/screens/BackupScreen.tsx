@@ -122,7 +122,8 @@ export function BackupScreen() {
 
   const openRestoreConfirm = (item: BackupMetadata) => {
     setRestoreTarget(item);
-    setRestorePasswordInput(backupPassword);
+    setRestorePasswordInput('');
+    setShowRestorePassword(false);
   };
 
   const handleConfirmInternalRestore = async () => {
@@ -140,6 +141,8 @@ export function BackupScreen() {
         createSafetyBackupFirst: true,
       });
       setRestoreTarget(null);
+      setRestorePasswordInput('');
+      setShowRestorePassword(false);
       await loadBackupState();
       setRestoreSuccessInfo({
         restoredVersion: res.restoredSchemaVersion,
@@ -172,6 +175,8 @@ export function BackupScreen() {
       });
       setShowExternalModal(false);
       setExternalBackupContent('');
+      setRestorePasswordInput('');
+      setShowRestorePassword(false);
       await loadBackupState();
       setRestoreSuccessInfo({
         restoredVersion: res.restoredSchemaVersion,
@@ -276,7 +281,8 @@ export function BackupScreen() {
           <TouchableOpacity
             style={styles.externalRestoreCard}
             onPress={() => {
-              setRestorePasswordInput(backupPassword);
+              setRestorePasswordInput('');
+              setShowRestorePassword(false);
               setShowExternalModal(true);
             }}
             activeOpacity={0.75}>
@@ -355,7 +361,11 @@ export function BackupScreen() {
         visible={Boolean(restoreTarget)}
         transparent
         animationType="fade"
-        onRequestClose={() => setRestoreTarget(null)}>
+        onRequestClose={() => {
+          setRestoreTarget(null);
+          setRestorePasswordInput('');
+          setShowRestorePassword(false);
+        }}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.warningHeader}>
@@ -388,7 +398,11 @@ export function BackupScreen() {
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.cancelBtn}
-                onPress={() => setRestoreTarget(null)}>
+                onPress={() => {
+                  setRestoreTarget(null);
+                  setRestorePasswordInput('');
+                  setShowRestorePassword(false);
+                }}>
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -406,7 +420,11 @@ export function BackupScreen() {
         visible={showExternalModal}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowExternalModal(false)}>
+        onRequestClose={() => {
+          setShowExternalModal(false);
+          setRestorePasswordInput('');
+          setShowRestorePassword(false);
+        }}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.externalModalHeader}>
@@ -457,7 +475,11 @@ export function BackupScreen() {
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={styles.cancelBtn}
-                onPress={() => setShowExternalModal(false)}>
+                onPress={() => {
+                  setShowExternalModal(false);
+                  setRestorePasswordInput('');
+                  setShowRestorePassword(false);
+                }}>
                 <Text style={styles.cancelBtnText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -480,22 +502,38 @@ export function BackupScreen() {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.successHeader}>
-              <Feather name="check-circle" size={28} color="#10B981" />
-              <Text style={styles.modalTitle}>Restauração Concluída!</Text>
+              <View style={styles.successIconWrap}>
+                <Feather name="check" size={24} color="#10B981" />
+              </View>
+              <View style={styles.successHeaderTextWrap}>
+                <Text style={styles.modalTitle}>Restauração Concluída!</Text>
+                <Text style={styles.successSub}>Dados aplicados com sucesso</Text>
+              </View>
             </View>
             <Text style={styles.modalDesc}>
               Seus dados foram validados e restaurados com sucesso (Schema v
               {restoreSuccessInfo?.restoredVersion} atualizado para v
-              {restoreSuccessInfo?.finalVersion}). Um backup de segurança prévio também foi salvo.
+              {restoreSuccessInfo?.finalVersion}). Um backup de segurança prévio também foi salvo para garantir a integridade dos seus dados.
             </Text>
-            <TouchableOpacity
-              style={styles.primaryBtn}
-              onPress={() => {
-                setRestoreSuccessInfo(null);
-                router.replace('/home' as unknown as Parameters<typeof router.replace>[0]);
-              }}>
-              <Text style={styles.primaryBtnText}>Ir para o Início</Text>
-            </TouchableOpacity>
+            <View style={styles.successActions}>
+              <TouchableOpacity
+                style={styles.successConfirmBtn}
+                onPress={() => {
+                  setRestoreSuccessInfo(null);
+                  router.replace('/home' as unknown as Parameters<typeof router.replace>[0]);
+                }}
+                activeOpacity={0.8}>
+                <Feather name="arrow-left" size={16} color="#FFFFFF" />
+                <Text style={styles.successConfirmBtnText}>Voltar ao Início</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.successDismissBtn}
+                onPress={() => setRestoreSuccessInfo(null)}
+                activeOpacity={0.7}>
+                <Text style={styles.successDismissBtnText}>Fechar e Continuar Aqui</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -861,7 +899,25 @@ const styles = StyleSheet.create({
   successHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
+  },
+  successIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(16, 185, 129, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  successHeaderTextWrap: {
+    flex: 1,
+  },
+  successSub: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginTop: 2,
   },
   modalTitle: {
     fontSize: 17,
@@ -872,6 +928,38 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#CBD5E1',
     lineHeight: 19,
+  },
+  successActions: {
+    gap: 8,
+    marginTop: 8,
+    width: '100%',
+  },
+  successConfirmBtn: {
+    width: '100%',
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#2563EB',
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  successConfirmBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  successDismissBtn: {
+    width: '100%',
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  successDismissBtnText: {
+    color: '#94A3B8',
+    fontSize: 13,
+    fontWeight: '600',
   },
   inputLabel: {
     fontSize: 12,

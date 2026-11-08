@@ -230,15 +230,26 @@ export function BillsScreen() {
           created_at: editingBill.created_at,
         });
       } else {
-        await manageBillsUseCase.createBill({
-          name: nameInput.trim(),
-          value: parsedVal,
-          due_day: parsedDue,
-          reminder_days_before: parsedReminder,
-          category_id: selectedCategoryId,
-          account_id: selectedAccountId,
-          notes: notesInput.trim() || undefined,
-        });
+        const isCurrentMonth =
+          selectedYear === now.getFullYear() && selectedMonth === now.getMonth() + 1;
+
+        const billDate = isCurrentMonth
+          ? new Date()
+          : new Date(selectedYear, selectedMonth - 1, Math.min(parsedDue, 28), 12, 0, 0);
+
+        await manageBillsUseCase.createBill(
+          {
+            name: nameInput.trim(),
+            value: parsedVal,
+            due_day: parsedDue,
+            reminder_days_before: parsedReminder,
+            category_id: selectedCategoryId,
+            account_id: selectedAccountId,
+            notes: notesInput.trim() || undefined,
+            created_at: billDate.toISOString(),
+          },
+          billDate
+        );
       }
       setShowFormModal(false);
       await loadData();
