@@ -7,7 +7,19 @@ import { BudgetRepository } from '../repositories/BudgetRepository';
 import { GoalRepository } from '../repositories/GoalRepository';
 import { CreateTransactionDTO } from '../../domain/entities/Transaction';
 
+let seedInFlightPromise: Promise<boolean> | null = null;
+
 export async function seedDemoUser(): Promise<boolean> {
+  if (seedInFlightPromise) {
+    return seedInFlightPromise;
+  }
+  seedInFlightPromise = seedDemoUserInternal().finally(() => {
+    seedInFlightPromise = null;
+  });
+  return seedInFlightPromise;
+}
+
+async function seedDemoUserInternal(): Promise<boolean> {
   const dbManager = DatabaseManager.getInstance();
   const previousUser = dbManager.getActiveUserId();
   const userRepository = new UserRepository(dbManager);
@@ -63,7 +75,26 @@ export async function seedDemoUser(): Promise<boolean> {
     icon: 'credit-card',
   });
 
-  const catAlimentacao = await categoryRepository.create({
+  const existingCategories = await categoryRepository.findAll();
+  const findOrCreateCategory = async (dto: {
+    name: string;
+    description: string;
+    color: string;
+    icon: string;
+    is_custom: boolean;
+  }) => {
+    const found = existingCategories.find(
+      (c) => c.name.trim().toLowerCase() === dto.name.trim().toLowerCase()
+    );
+    if (found) {
+      return found;
+    }
+    const created = await categoryRepository.create(dto);
+    existingCategories.push(created);
+    return created;
+  };
+
+  const catAlimentacao = await findOrCreateCategory({
     name: 'Alimentação',
     description: 'Supermercado, restaurantes e delivery',
     color: '#F59E0B',
@@ -71,7 +102,7 @@ export async function seedDemoUser(): Promise<boolean> {
     is_custom: false,
   });
 
-  const catTransporte = await categoryRepository.create({
+  const catTransporte = await findOrCreateCategory({
     name: 'Transporte',
     description: 'Combustível, ônibus e viagens',
     color: '#3B82F6',
@@ -79,7 +110,7 @@ export async function seedDemoUser(): Promise<boolean> {
     is_custom: false,
   });
 
-  const catLazer = await categoryRepository.create({
+  const catLazer = await findOrCreateCategory({
     name: 'Lazer',
     description: 'Cinema, passeios e diversão',
     color: '#EC4899',
@@ -87,7 +118,7 @@ export async function seedDemoUser(): Promise<boolean> {
     is_custom: false,
   });
 
-  const catMoradia = await categoryRepository.create({
+  const catMoradia = await findOrCreateCategory({
     name: 'Moradia',
     description: 'Aluguel, contas de luz e água',
     color: '#10B981',
@@ -95,7 +126,7 @@ export async function seedDemoUser(): Promise<boolean> {
     is_custom: false,
   });
 
-  const catSaude = await categoryRepository.create({
+  const catSaude = await findOrCreateCategory({
     name: 'Saúde',
     description: 'Farmácia, exames e consultas',
     color: '#EF4444',
@@ -103,7 +134,7 @@ export async function seedDemoUser(): Promise<boolean> {
     is_custom: false,
   });
 
-  const catEducacao = await categoryRepository.create({
+  const catEducacao = await findOrCreateCategory({
     name: 'Educação',
     description: 'Cursos, livros e faculdade',
     color: '#8B5CF6',
@@ -111,7 +142,7 @@ export async function seedDemoUser(): Promise<boolean> {
     is_custom: false,
   });
 
-  const catSalario = await categoryRepository.create({
+  const catSalario = await findOrCreateCategory({
     name: 'Salário',
     description: 'Salário mensal e benefícios',
     color: '#22C55E',
@@ -119,7 +150,7 @@ export async function seedDemoUser(): Promise<boolean> {
     is_custom: false,
   });
 
-  const catFreelance = await categoryRepository.create({
+  const catFreelance = await findOrCreateCategory({
     name: 'Freelance',
     description: 'Projetos extras e consultorias',
     color: '#6366F1',

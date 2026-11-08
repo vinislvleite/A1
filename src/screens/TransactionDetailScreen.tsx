@@ -22,13 +22,14 @@ import { Transaction } from '../domain/entities/Transaction';
 import { Category } from '../domain/entities/Category';
 import { Account } from '../domain/entities/Account';
 import { DeleteTransactionModal } from '../components/DeleteTransactionModal';
+import { formatMoneyValue } from '../components/MoneyText';
+import { usePrivacyMode } from '../context/PrivacyContext';
 
 export interface TransactionDetailScreenProps {
   id: string;
 }
 
-const formatCurrency = (val: number): string =>
-  val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const formatCurrency = (val: number): string => formatMoneyValue(val);
 
 const formatDateTime = (isoDate: string): string => {
   try {
@@ -46,11 +47,13 @@ const formatDateTime = (isoDate: string): string => {
 };
 
 export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
+  usePrivacyMode();
   const [transaction, setTransaction] = useState<Transaction | null>(null);
   const [category, setCategory] = useState<Category | null>(null);
   const [account, setAccount] = useState<Account | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isActionLoading, setIsActionLoading] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showImageZoom, setShowImageZoom] = useState(false);
 
@@ -90,14 +93,48 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
     }, [loadData])
   );
 
+  const handleConfirmPending = async () => {
+    if (!transaction) return;
+    try {
+      setIsActionLoading(true);
+      const updated = await transactionRepo.confirmTransaction(transaction.id);
+      setTransaction(updated);
+    } catch {
+      Alert.alert('Erro', 'Não foi possível confirmar a transação.');
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  const handleDisableRecurrence = async () => {
+    if (!transaction) return;
+    try {
+      setIsActionLoading(true);
+      await transactionRepo.disableRecurrence(transaction.id);
+      const updated = await transactionRepo.findById(transaction.id);
+      if (updated) {
+        setTransaction(updated);
+      }
+    } catch {
+      Alert.alert('Erro', 'Não foi possível desativar a recorrência.');
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
   const handleDelete = () => {
     setShowDeleteModal(true);
   };
 
-  const handleConfirmDelete = async () => {
+  const handleConfirmDelete = async (scope?: 'single' | 'future') => {
+    if (!transaction) return;
     try {
       setIsDeleting(true);
-      await transactionRepo.delete(id);
+      if (transaction.installment_group_id) {
+        await transactionRepo.deleteInstallmentGroup(transaction.id, scope ?? 'single');
+      } else {
+        await transactionRepo.delete(transaction.id);
+      }
       setShowDeleteModal(false);
       router.back();
     } catch {
@@ -167,6 +204,7 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
   }
 
   const isIncome = transaction.type === 'receita';
+  const isPending = transaction.status === 'pendente';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -175,46 +213,62 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
           <Feather name="chevron-left" size={20} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.navTitle}>Detalhes da Transação</Text>
-        <TouchableOpacity
-          style={styles.navBtn}
-          onPress={() =>
-            router.push({
-              pathname: '/transaction-form',
-              params: { id: transaction.id },
-            } as unknown as Parameters<typeof router.push>[0])
-          }
-          activeOpacity={0.7}>
-          <Feather name="edit-2" size={18} color="#60A5FA" />
-        </TouchableOpacity>
+        <View style={styles.navPlaceholder} />
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.heroCard}>
+        <View
+          style={[
+            styles.heroCard,
+            transaction.color_label
+              ? { borderLeftWidth: 5, borderLeftColor: transaction.color_label }
+              : null,
+          ]}>
           <View style={styles.badgesRow}>
             <View
               style={[
-                styles.typeBadge,
-                isIncome ? styles.typeBadgeIncome : styles.typeBadgeExpense,
+                styles.typePill,
+                isIncome ? styles.typePillIncome : styles.typePillExpense,
               ]}>
-              <Feather
-                name={isIncome ? 'arrow-down-left' : 'arrow-up-right'}
-                size={12}
-                color={isIncome ? '#4ADE80' : '#F87171'}
-              />
               <Text
                 style={[
-                  styles.typeBadgeText,
-                  isIncome ? styles.typeBadgeTextIncome : styles.typeBadgeTextExpense,
+                  styles.typePillText,
+                  isIncome ? styles.typePillTextIncome : styles.typePillTextExpense,
                 ]}>
                 {isIncome ? 'Receita' : 'Despesa'}
               </Text>
             </View>
 
+            {transaction.is_extra_income ? (
+              <View style={styles.extraIncomeBadge}>
+                <Feather name="trending-up" size={13} color="#34D399" />
+                <Text style={styles.extraIncomeBadgeText}>Renda Extra</Text>
+              </View>
+            ) : null}
+
             {transaction.is_recurring ? (
               <View style={styles.recurringBadge}>
-                <Feather name="repeat" size={11} color="#60A5FA" />
-                <Text style={styles.recurringBadgeText}>Gasto Fixo Mensal</Text>
+                <Feather name="repeat" size={13} color="#60A5FA" />
+                <Text style={styles.recurringBadgeText}>Recorrente</Text>
               </View>
+            ) : null}
+
+            {transaction.installment_number && transaction.installment_total ? (
+              <View style={styles.installmentBadge}>
+                <Feather name="layers" size={13} color="#A78BFA" />
+                <Text style={styles.installmentBadgeText}>
+                  Parcela {transaction.installment_number}/{transaction.installment_total}
+                </Text>
+              </View>
+            ) : null}
+
+            {transaction.color_label ? (
+              <View
+                style={[
+                  styles.colorLabelDot,
+                  { backgroundColor: transaction.color_label },
+                ]}
+              />
             ) : null}
           </View>
 
@@ -224,85 +278,150 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
           </Text>
 
           <Text style={styles.heroDescription}>{transaction.description}</Text>
+
+          {isPending ? (
+            <TouchableOpacity
+              testID="btn-confirm-pending-detail"
+              style={styles.btnConfirmPendingHero}
+              onPress={handleConfirmPending}
+              disabled={isActionLoading}
+              activeOpacity={0.85}>
+              <Feather name="check-circle" size={16} color="#FFFFFF" />
+              <Text style={styles.btnConfirmPendingHeroText}>
+                Confirmar Transação Agora
+              </Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
         <View style={styles.detailsCard}>
-          <View style={styles.detailRow}>
-            <View style={styles.detailLeft}>
-              <View
+          <View style={styles.detailItem}>
+            <View
+              style={[
+                styles.detailIconBox,
+                { backgroundColor: category?.color ? `${category.color}20` : '#1E293B' },
+              ]}>
+              <Feather
+                name={(category?.icon as keyof typeof Feather.glyphMap) ?? 'tag'}
+                size={18}
+                color={category?.color ?? '#FBBF24'}
+              />
+            </View>
+            <View style={styles.detailContent}>
+              <Text style={styles.detailPrimaryText}>{category?.name ?? 'Geral'}</Text>
+              {category?.description ? (
+                <Text style={styles.detailSecondaryText} numberOfLines={1}>
+                  {category.description}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.detailItem}>
+            <View style={[styles.detailIconBox, { backgroundColor: 'rgba(59, 130, 246, 0.14)' }]}>
+              <Feather name="credit-card" size={18} color="#60A5FA" />
+            </View>
+            <View style={styles.detailContent}>
+              <Text style={styles.detailPrimaryText}>{account?.name ?? 'Conta'}</Text>
+            </View>
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.detailItem}>
+            <View style={[styles.detailIconBox, { backgroundColor: 'rgba(148, 163, 184, 0.12)' }]}>
+              <Feather name="calendar" size={18} color="#94A3B8" />
+            </View>
+            <View style={styles.detailContent}>
+              <Text style={styles.detailPrimaryText}>{formatDateTime(transaction.date)}</Text>
+            </View>
+          </View>
+
+          <View style={styles.divider} />
+
+          <View style={styles.detailItem}>
+            <View
+              style={[
+                styles.detailIconBox,
+                {
+                  backgroundColor: isPending
+                    ? 'rgba(245, 158, 11, 0.16)'
+                    : 'rgba(16, 185, 129, 0.16)',
+                },
+              ]}>
+              <Feather
+                name={isPending ? 'clock' : 'check-circle'}
+                size={18}
+                color={isPending ? '#F59E0B' : '#10B981'}
+              />
+            </View>
+            <View style={styles.detailContent}>
+              <Text
                 style={[
-                  styles.detailIconBox,
-                  { backgroundColor: category?.color ? `${category.color}20` : '#334155' },
+                  styles.detailPrimaryText,
+                  { color: isPending ? '#F59E0B' : '#10B981' },
                 ]}>
-                <Feather
-                  name={(category?.icon as keyof typeof Feather.glyphMap) ?? 'tag'}
-                  size={18}
-                  color={category?.color ?? '#FBBF24'}
-                />
-              </View>
-              <Text style={styles.detailLabel}>Categoria</Text>
-            </View>
-            <Text style={styles.detailValue}>{category?.name ?? 'Geral'}</Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.detailRow}>
-            <View style={styles.detailLeft}>
-              <View style={styles.detailIconBox}>
-                <Feather name="credit-card" size={18} color="#60A5FA" />
-              </View>
-              <Text style={styles.detailLabel}>Conta</Text>
-            </View>
-            <Text style={styles.detailValue}>{account?.name ?? 'Conta'}</Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.detailRow}>
-            <View style={styles.detailLeft}>
-              <View style={styles.detailIconBox}>
-                <Feather name="calendar" size={18} color="#60A5FA" />
-              </View>
-              <Text style={styles.detailLabel}>Data e Hora</Text>
-            </View>
-            <Text style={styles.detailValue}>{formatDateTime(transaction.date)}</Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.detailRow}>
-            <View style={styles.detailLeft}>
-              <View style={styles.detailIconBox}>
-                <Feather name="check-circle" size={18} color="#10B981" />
-              </View>
-              <Text style={styles.detailLabel}>Status</Text>
-            </View>
-            <View style={styles.statusBadge}>
-              <View style={styles.statusDot} />
-              <Text style={styles.statusText}>Confirmada</Text>
+                {isPending ? 'Pendente' : 'Confirmada'}
+              </Text>
             </View>
           </View>
+
+          {transaction.is_extra_income && transaction.income_source ? (
+            <>
+              <View style={styles.divider} />
+              <View style={styles.detailItem}>
+                <View style={[styles.detailIconBox, { backgroundColor: 'rgba(16, 185, 129, 0.16)' }]}>
+                  <Feather name="briefcase" size={18} color="#10B981" />
+                </View>
+                <View style={styles.detailContent}>
+                  <Text style={styles.detailPrimaryText}>{transaction.income_source}</Text>
+                  <Text style={styles.detailSecondaryText}>Origem de renda extra</Text>
+                </View>
+              </View>
+            </>
+          ) : null}
 
           {transaction.is_recurring ? (
             <>
               <View style={styles.divider} />
-              <View style={styles.detailRow}>
-                <View style={styles.detailLeft}>
-                  <View style={styles.detailIconBox}>
-                    <Feather name="repeat" size={18} color="#60A5FA" />
-                  </View>
-                  <Text style={styles.detailLabel}>Recorrência</Text>
+              <View style={styles.detailItem}>
+                <View style={[styles.detailIconBox, { backgroundColor: 'rgba(96, 165, 250, 0.16)' }]}>
+                  <Feather name="repeat" size={18} color="#60A5FA" />
                 </View>
-                <Text style={styles.detailValue}>
-                  {transaction.recurrence_day
-                    ? `Todo dia ${transaction.recurrence_day}`
-                    : 'Mensal'}
-                </Text>
+                <View style={styles.detailContentRow}>
+                  <Text style={styles.detailPrimaryText}>
+                    {transaction.recurrence_day
+                      ? `Todo dia ${transaction.recurrence_day}`
+                      : 'Recorrência mensal'}
+                  </Text>
+                  <TouchableOpacity
+                    testID="btn-disable-recurrence"
+                    style={styles.btnDisableRecurrence}
+                    onPress={handleDisableRecurrence}
+                    disabled={isActionLoading}
+                    activeOpacity={0.75}>
+                    <Text style={styles.btnDisableRecurrenceText}>Desativar</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </>
           ) : null}
         </View>
+
+        {transaction.tags && transaction.tags.length > 0 ? (
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionHeading}>TAGS</Text>
+            <View style={styles.tagsWrap}>
+              {transaction.tags.map((tag) => (
+                <View key={tag} style={styles.tagChip}>
+                  <Text style={styles.tagChipText}>#{tag}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
 
         {transaction.notes ? (
           <View style={styles.sectionContainer}>
@@ -419,6 +538,9 @@ export function TransactionDetailScreen({ id }: TransactionDetailScreenProps) {
                 accountName: account?.name,
                 categoryName: category?.name,
                 date: transaction.date,
+                installment_group_id: transaction.installment_group_id,
+                installment_number: transaction.installment_number,
+                installment_total: transaction.installment_total,
               }
             : null
         }
@@ -447,7 +569,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     paddingVertical: 12,
   },
   navBtn: {
@@ -464,6 +586,9 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  navPlaceholder: {
+    width: 38,
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -482,55 +607,99 @@ const styles = StyleSheet.create({
   badgesRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
     gap: 8,
     marginBottom: 16,
   },
-  typeBadge: {
-    flexDirection: 'row',
+  typePill: {
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
+    justifyContent: 'center',
   },
-  typeBadgeIncome: {
-    backgroundColor: 'rgba(74, 222, 128, 0.15)',
+  typePillExpense: {
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderColor: 'rgba(239, 68, 68, 0.25)',
   },
-  typeBadgeExpense: {
-    backgroundColor: 'rgba(248, 113, 113, 0.15)',
+  typePillIncome: {
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    borderColor: 'rgba(34, 197, 94, 0.25)',
   },
-  typeBadgeText: {
-    fontSize: 12,
+  typePillText: {
+    fontSize: 13,
     fontWeight: '700',
+    letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
-  typeBadgeTextIncome: {
+  typePillTextExpense: {
+    color: '#F87171',
+  },
+  typePillTextIncome: {
     color: '#4ADE80',
   },
-  typeBadgeTextExpense: {
-    color: '#F87171',
+  extraIncomeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(16, 185, 129, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.4)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  extraIncomeBadgeText: {
+    color: '#34D399',
+    fontSize: 13,
+    fontWeight: '600',
   },
   recurringBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
     backgroundColor: 'rgba(37, 99, 235, 0.2)',
     borderWidth: 1,
     borderColor: 'rgba(96, 165, 250, 0.4)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
   },
   recurringBadgeText: {
     color: '#60A5FA',
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '600',
+  },
+  installmentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(139, 92, 246, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(167, 139, 250, 0.4)',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  installmentBadgeText: {
+    color: '#A78BFA',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  colorLabelDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   heroAmount: {
     fontSize: 34,
     fontWeight: '800',
     letterSpacing: 0.5,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   amountIncome: {
     color: '#4ADE80',
@@ -539,10 +708,26 @@ const styles = StyleSheet.create({
     color: '#F87171',
   },
   heroDescription: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#94A3B8',
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#E2E8F0',
     textAlign: 'center',
+  },
+  btnConfirmPendingHero: {
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#10B981',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  btnConfirmPendingHeroText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
   },
   detailsCard: {
     backgroundColor: '#1E293B',
@@ -550,63 +735,58 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#334155',
     paddingHorizontal: 18,
-    paddingVertical: 8,
+    paddingVertical: 4,
     marginBottom: 20,
   },
-  detailRow: {
+  detailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+  },
+  detailIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  detailContent: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  detailContentRow: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 14,
   },
-  detailLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  detailIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#0F172A',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  detailLabel: {
-    fontSize: 14,
-    color: '#94A3B8',
-    fontWeight: '500',
-  },
-  detailValue: {
-    fontSize: 14,
-    color: '#FFFFFF',
+  detailPrimaryText: {
+    fontSize: 15,
+    color: '#F1F5F9',
     fontWeight: '600',
-    maxWidth: '55%',
-    textAlign: 'right',
+  },
+  detailSecondaryText: {
+    fontSize: 12,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
+  btnDisableRecurrence: {
+    backgroundColor: 'rgba(239, 68, 68, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  btnDisableRecurrenceText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#F87171',
   },
   divider: {
     height: 1,
     backgroundColor: '#334155',
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(16, 185, 129, 0.15)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#10B981',
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#10B981',
   },
   sectionContainer: {
     marginBottom: 20,
@@ -617,6 +797,24 @@ const styles = StyleSheet.create({
     color: '#64748B',
     letterSpacing: 0.8,
     marginBottom: 8,
+  },
+  tagsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  tagChip: {
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  tagChipText: {
+    fontSize: 12,
+    color: '#93C5FD',
+    fontWeight: '600',
   },
   notesCard: {
     flexDirection: 'row',

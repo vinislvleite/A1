@@ -6,12 +6,12 @@ import {
   TransactionFilter,
   TransactionSortOptions,
   PaginatedResult,
+  CategoryMonthlyTotal,
 } from '../../domain/entities/Transaction';
 import { generateUUID } from '../../utils/uuid';
 import { CategoryRepository } from './CategoryRepository';
 import { AccountRepository } from './AccountRepository';
 import { LogService } from '../../services/LogService';
-
 
 interface TransactionRow {
   id: string;
@@ -23,6 +23,14 @@ interface TransactionRow {
   date: string;
   is_recurring: number;
   recurrence_day: number | null;
+  recurrence_parent_id?: string | null;
+  installment_group_id?: string | null;
+  installment_number?: number | null;
+  installment_total?: number | null;
+  is_extra_income?: number | null;
+  income_source?: string | null;
+  color_label?: string | null;
+  event_id?: string | null;
   tags: string;
   notes: string | null;
   attachment_uri: string | null;
@@ -38,6 +46,14 @@ interface CountRow {
 interface TotalsRow {
   total_income: number | null;
   total_expense: number | null;
+  fixed_income?: number | null;
+  extra_income?: number | null;
+}
+
+interface MonthlyCategoryRow {
+  year_month: string;
+  total: number | null;
+  count: number | null;
 }
 
 export class TransactionRepository {
@@ -49,6 +65,52 @@ export class TransactionRepository {
     this.dbManager = dbManager;
     this.categoryRepository = new CategoryRepository(dbManager);
     this.accountRepository = new AccountRepository(dbManager);
+  }
+
+  private normalizeTagsList(tags?: string[]): string[] {
+    if (!tags || tags.length === 0) {
+      return [];
+    }
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const raw of tags) {
+      const cleaned = raw.trim();
+      if (!cleaned) continue;
+      const lower = cleaned.toLowerCase();
+      if (!seen.has(lower)) {
+        seen.add(lower);
+        result.push(cleaned);
+      }
+    }
+    return result;
+  }
+
+  private async syncNormalizedTags(transactionId: string, tags: string[], now: string): Promise<void> {
+    await this.dbManager.executeQuery('DELETE FROM transaction_tags WHERE transaction_id = ?;', [transactionId]);
+
+    for (const tagName of tags) {
+      const existingTagRes = await this.dbManager.executeQuery(
+        'SELECT id, name FROM tags WHERE LOWER(name) = ?;',
+        [tagName.toLowerCase()]
+      );
+
+      let tagId: string;
+      if (existingTagRes.rows.length > 0) {
+        const item = existingTagRes.rows.item(0) as { id: string };
+        tagId = item.id;
+      } else {
+        tagId = generateUUID();
+        await this.dbManager.executeQuery(
+          'INSERT OR IGNORE INTO tags (id, name) VALUES (?, ?);',
+          [tagId, tagName]
+        );
+      }
+
+      await this.dbManager.executeQuery(
+        'INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?, ?);',
+        [transactionId, tagId]
+      );
+    }
   }
 
   private mapRowToEntity(row: TransactionRow): Transaction {
@@ -71,10 +133,18 @@ export class TransactionRepository {
       date: row.date,
       is_recurring: row.is_recurring === 1,
       recurrence_day: row.recurrence_day ?? undefined,
+      recurrence_parent_id: row.recurrence_parent_id ?? undefined,
+      installment_group_id: row.installment_group_id ?? undefined,
+      installment_number: row.installment_number !== null && row.installment_number !== undefined ? Number(row.installment_number) : undefined,
+      installment_total: row.installment_total !== null && row.installment_total !== undefined ? Number(row.installment_total) : undefined,
+      is_extra_income: row.is_extra_income === 1,
+      income_source: row.income_source ?? undefined,
+      color_label: row.color_label ?? undefined,
+      event_id: row.event_id ?? undefined,
       tags: parsedTags,
       notes: row.notes ?? undefined,
       attachment_uri: row.attachment_uri ?? undefined,
-      status: row.status,
+      status: row.status ?? 'confirmada',
       created_at: row.created_at,
       updated_at: row.updated_at,
     };
@@ -127,6 +197,30 @@ export class TransactionRepository {
       params.push(filter.status);
     }
 
+    if (filter.isExtraIncome !== undefined) {
+      conditions.push('is_extra_income = ?');
+      params.push(filter.isExtraIncome ? 1 : 0);
+    }
+
+    if (filter.installmentGroupId) {
+      conditions.push('installment_group_id = ?');
+      params.push(filter.installmentGroupId);
+    }
+
+    if (filter.recurrenceParentId) {
+      conditions.push('recurrence_parent_id = ?');
+      params.push(filter.recurrenceParentId);
+    }
+
+    if (filter.eventId) {
+      conditions.push('event_id = ?');
+      params.push(filter.eventId);
+    }
+
+    if (filter.excludeEvents) {
+      conditions.push('event_id IS NULL');
+    }
+
     if (filter.startDate) {
       conditions.push('date >= ?');
       params.push(filter.startDate);
@@ -137,10 +231,40 @@ export class TransactionRepository {
       params.push(filter.endDate);
     }
 
+    if (filter.maxEffectiveDate) {
+      conditions.push('substr(date, 1, 10) <= ?');
+      params.push(filter.maxEffectiveDate.substring(0, 10));
+    }
+
+    if (filter.tags && filter.tags.length > 0) {
+      const cleanTags = filter.tags
+        .map((t) => t.trim().toLowerCase().replace(/^#/, ''))
+        .filter(Boolean);
+      if (cleanTags.length === 1) {
+        conditions.push(
+          'id IN (SELECT tt.transaction_id FROM transaction_tags tt JOIN tags tg ON tt.tag_id = tg.id WHERE LOWER(tg.name) = ?)'
+        );
+        params.push(cleanTags[0]);
+      } else if (cleanTags.length > 1) {
+        const placeholders = cleanTags.map(() => '?').join(',');
+        conditions.push(
+          `id IN (SELECT tt.transaction_id FROM transaction_tags tt JOIN tags tg ON tt.tag_id = tg.id WHERE LOWER(tg.name) IN (${placeholders}))`
+        );
+        params.push(...cleanTags);
+      }
+    } else if (filter.tag) {
+      conditions.push(
+        'id IN (SELECT tt.transaction_id FROM transaction_tags tt JOIN tags tg ON tt.tag_id = tg.id WHERE LOWER(tg.name) = ?)'
+      );
+      params.push(filter.tag.trim().toLowerCase().replace(/^#/, ''));
+    }
+
     if (filter.searchTerm) {
-      conditions.push('(description LIKE ? OR notes LIKE ?)');
-      params.push(`%${filter.searchTerm}%`);
-      params.push(`%${filter.searchTerm}%`);
+      const likeTerm = `%${filter.searchTerm}%`;
+      conditions.push(
+        '(description LIKE ? OR notes LIKE ? OR id IN (SELECT tt.transaction_id FROM transaction_tags tt JOIN tags tg ON tt.tag_id = tg.id WHERE tg.name LIKE ?))'
+      );
+      params.push(likeTerm, likeTerm, likeTerm);
     }
 
     const whereSql = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -151,7 +275,9 @@ export class TransactionRepository {
     const id = generateUUID();
     const now = new Date().toISOString();
     const isRecurringInt = data.is_recurring ? 1 : 0;
-    const tagsJson = JSON.stringify(data.tags ?? []);
+    const isExtraIncomeInt = data.is_extra_income ? 1 : 0;
+    const cleanTags = this.normalizeTagsList(data.tags);
+    const tagsJson = JSON.stringify(cleanTags);
     const status = data.status ?? 'confirmada';
 
     const accountExists = await this.accountRepository.findById(data.account_id);
@@ -168,9 +294,11 @@ export class TransactionRepository {
       await this.dbManager.executeQuery(
         `INSERT INTO transactions (
           id, account_id, category_id, value, type, description, date,
-          is_recurring, recurrence_day, tags, notes, attachment_uri,
-          status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+          is_recurring, recurrence_day, recurrence_parent_id,
+          installment_group_id, installment_number, installment_total,
+          is_extra_income, income_source, color_label, event_id,
+          tags, notes, attachment_uri, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
         [
           id,
           data.account_id,
@@ -181,6 +309,14 @@ export class TransactionRepository {
           data.date,
           isRecurringInt,
           data.recurrence_day ?? null,
+          data.recurrence_parent_id ?? null,
+          data.installment_group_id ?? null,
+          data.installment_number ?? null,
+          data.installment_total ?? null,
+          isExtraIncomeInt,
+          data.income_source ?? null,
+          data.color_label ?? null,
+          data.event_id ?? null,
           tagsJson,
           data.notes ?? null,
           data.attachment_uri ?? null,
@@ -189,6 +325,10 @@ export class TransactionRepository {
           now,
         ]
       );
+
+      if (cleanTags.length > 0) {
+        await this.syncNormalizedTags(id, cleanTags, now);
+      }
 
       const created = await this.findById(id);
       if (!created) {
@@ -202,13 +342,14 @@ export class TransactionRepository {
     }
   }
 
-
   public async findById(id: string): Promise<Transaction | null> {
     try {
       const result = await this.dbManager.executeQuery(
         `SELECT id, account_id, category_id, value, type, description, date,
-                is_recurring, recurrence_day, tags, notes, attachment_uri,
-                status, created_at, updated_at
+                is_recurring, recurrence_day, recurrence_parent_id,
+                installment_group_id, installment_number, installment_total,
+                is_extra_income, income_source, color_label, event_id,
+                tags, notes, attachment_uri, status, created_at, updated_at
          FROM transactions
          WHERE id = ?;`,
         [id]
@@ -231,8 +372,10 @@ export class TransactionRepository {
       const { whereSql, params } = this.buildFilterClauses(filter);
       const sql = `
         SELECT id, account_id, category_id, value, type, description, date,
-               is_recurring, recurrence_day, tags, notes, attachment_uri,
-               status, created_at, updated_at
+               is_recurring, recurrence_day, recurrence_parent_id,
+               installment_group_id, installment_number, installment_total,
+               is_extra_income, income_source, color_label, event_id,
+               tags, notes, attachment_uri, status, created_at, updated_at
         FROM transactions
         ${whereSql}
         ORDER BY date DESC, created_at DESC;
@@ -282,8 +425,10 @@ export class TransactionRepository {
 
       const dataSql = `
         SELECT id, account_id, category_id, value, type, description, date,
-               is_recurring, recurrence_day, tags, notes, attachment_uri,
-               status, created_at, updated_at
+               is_recurring, recurrence_day, recurrence_parent_id,
+               installment_group_id, installment_number, installment_total,
+               is_extra_income, income_source, color_label, event_id,
+               tags, notes, attachment_uri, status, created_at, updated_at
         FROM transactions
         ${whereSql}
         ORDER BY ${orderBySql}
@@ -341,15 +486,52 @@ export class TransactionRepository {
     const type = data.type ?? existing.type;
     const description = data.description ?? existing.description;
     const date = data.date ?? existing.date;
-    const isRecurringInt = data.is_recurring !== undefined
-      ? (data.is_recurring ? 1 : 0)
-      : (existing.is_recurring ? 1 : 0);
-    const recurrenceDay = data.recurrence_day !== undefined
-      ? data.recurrence_day
-      : existing.recurrence_day;
-    const tagsJson = data.tags !== undefined ? JSON.stringify(data.tags) : JSON.stringify(existing.tags);
+    const isRecurringInt =
+      data.is_recurring !== undefined
+        ? data.is_recurring
+          ? 1
+          : 0
+        : existing.is_recurring
+        ? 1
+        : 0;
+    const recurrenceDay =
+      data.recurrence_day !== undefined ? data.recurrence_day : existing.recurrence_day;
+    const recurrenceParentId =
+      data.recurrence_parent_id !== undefined
+        ? data.recurrence_parent_id
+        : existing.recurrence_parent_id;
+    const installmentGroupId =
+      data.installment_group_id !== undefined
+        ? data.installment_group_id
+        : existing.installment_group_id;
+    const installmentNumber =
+      data.installment_number !== undefined
+        ? data.installment_number
+        : existing.installment_number;
+    const installmentTotal =
+      data.installment_total !== undefined
+        ? data.installment_total
+        : existing.installment_total;
+    const isExtraIncomeInt =
+      data.is_extra_income !== undefined
+        ? data.is_extra_income
+          ? 1
+          : 0
+        : existing.is_extra_income
+        ? 1
+        : 0;
+    const incomeSource =
+      data.income_source !== undefined ? data.income_source : existing.income_source;
+    const colorLabel =
+      data.color_label !== undefined ? data.color_label : existing.color_label;
+    const eventId =
+      data.event_id !== undefined ? data.event_id : existing.event_id;
+    const cleanTags =
+      data.tags !== undefined ? this.normalizeTagsList(data.tags) : existing.tags;
+    const tagsJson = JSON.stringify(cleanTags);
     const notes = data.notes !== undefined ? data.notes : existing.notes;
-    const attachmentUri = data.attachment_uri !== undefined ? data.attachment_uri : existing.attachment_uri;
+    const attachmentUri =
+      data.attachment_uri !== undefined ? data.attachment_uri : existing.attachment_uri;
     const status = data.status ?? existing.status;
     const now = new Date().toISOString();
 
@@ -357,8 +539,10 @@ export class TransactionRepository {
       await this.dbManager.executeQuery(
         `UPDATE transactions
          SET account_id = ?, category_id = ?, value = ?, type = ?, description = ?, date = ?,
-             is_recurring = ?, recurrence_day = ?, tags = ?, notes = ?, attachment_uri = ?,
-             status = ?, updated_at = ?
+             is_recurring = ?, recurrence_day = ?, recurrence_parent_id = ?,
+             installment_group_id = ?, installment_number = ?, installment_total = ?,
+             is_extra_income = ?, income_source = ?, color_label = ?, event_id = ?,
+             tags = ?, notes = ?, attachment_uri = ?, status = ?, updated_at = ?
          WHERE id = ?;`,
         [
           accountId,
@@ -369,6 +553,14 @@ export class TransactionRepository {
           date,
           isRecurringInt,
           recurrenceDay ?? null,
+          recurrenceParentId ?? null,
+          installmentGroupId ?? null,
+          installmentNumber ?? null,
+          installmentTotal ?? null,
+          isExtraIncomeInt,
+          incomeSource ?? null,
+          colorLabel ?? null,
+          eventId ?? null,
           tagsJson,
           notes ?? null,
           attachmentUri ?? null,
@@ -377,6 +569,10 @@ export class TransactionRepository {
           id,
         ]
       );
+
+      if (data.tags !== undefined) {
+        await this.syncNormalizedTags(id, cleanTags, now);
+      }
 
       const updated = await this.findById(id);
       if (!updated) {
@@ -390,6 +586,102 @@ export class TransactionRepository {
     }
   }
 
+  public async confirmTransaction(id: string): Promise<Transaction> {
+    return this.update(id, { status: 'confirmada' });
+  }
+
+  public async disableRecurrence(id: string): Promise<void> {
+    const existing = await this.findById(id);
+    if (!existing) {
+      throw new Error(`Transação não encontrada com ID: ${id}`);
+    }
+
+    const parentId = existing.recurrence_parent_id ?? existing.id;
+    const now = new Date().toISOString();
+
+    try {
+      await this.dbManager.executeQuery(
+        'UPDATE transactions SET is_recurring = ?, updated_at = ? WHERE id = ?;',
+        [0, now, parentId]
+      );
+      await this.dbManager.executeQuery(
+        'UPDATE transactions SET is_recurring = ?, updated_at = ? WHERE recurrence_parent_id = ?;',
+        [0, now, parentId]
+      );
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      await LogService.getInstance().logCriticalError('TRANSACTION_DISABLE_RECURRENCE_FAILED', message);
+      throw new Error(`Erro ao desativar recorrência [${id}]: ${message}`);
+    }
+  }
+
+  public async findByInstallmentGroup(groupId: string): Promise<Transaction[]> {
+    const list = await this.findAll({ installmentGroupId: groupId });
+    return list.sort((a, b) => (a.installment_number ?? 0) - (b.installment_number ?? 0));
+  }
+
+  public async updateInstallmentGroup(
+    id: string,
+    scope: 'single' | 'future',
+    data: UpdateTransactionDTO
+  ): Promise<void> {
+    const existing = await this.findById(id);
+    if (!existing) {
+      throw new Error(`Transação não encontrada com ID: ${id}`);
+    }
+
+    if (scope === 'single' || !existing.installment_group_id || !existing.installment_number) {
+      await this.update(id, data);
+      return;
+    }
+
+    const groupItems = await this.findByInstallmentGroup(existing.installment_group_id);
+    const minNumber = existing.installment_number;
+    const targetItems = groupItems.filter((item) => (item.installment_number ?? 0) >= minNumber);
+
+    for (const item of targetItems) {
+      const itemUpdate: UpdateTransactionDTO = { ...data };
+      if (item.id !== existing.id) {
+        delete itemUpdate.date;
+      }
+      if (data.description !== undefined) {
+        const baseDesc = data.description.replace(/\s*\(\d+\/\d+\)$/, '').trim();
+        if (item.installment_number && item.installment_total) {
+          itemUpdate.description = `${baseDesc} (${item.installment_number}/${item.installment_total})`;
+        } else {
+          itemUpdate.description = baseDesc;
+        }
+      }
+      await this.update(item.id, itemUpdate);
+    }
+  }
+
+  public async deleteInstallmentGroup(
+    id: string,
+    scope: 'single' | 'future'
+  ): Promise<number> {
+    const existing = await this.findById(id);
+    if (!existing) {
+      throw new Error(`Transação não encontrada para exclusão com ID: ${id}`);
+    }
+
+    if (scope === 'single' || !existing.installment_group_id || !existing.installment_number) {
+      await this.delete(id);
+      return 1;
+    }
+
+    try {
+      const res = await this.dbManager.executeQuery(
+        'DELETE FROM transactions WHERE installment_group_id = ? AND installment_number >= ?;',
+        [existing.installment_group_id, existing.installment_number]
+      );
+      return res.rowsAffected || 1;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      await LogService.getInstance().logCriticalError('TRANSACTION_INSTALLMENT_DELETE_FAILED', message);
+      throw new Error(`Erro ao excluir parcelas do grupo [${existing.installment_group_id}]: ${message}`);
+    }
+  }
 
   public async delete(id: string): Promise<void> {
     const existing = await this.findById(id);
@@ -398,6 +690,7 @@ export class TransactionRepository {
     }
 
     try {
+      await this.dbManager.executeQuery('DELETE FROM transaction_tags WHERE transaction_id = ?;', [id]);
       await this.dbManager.executeQuery('DELETE FROM transactions WHERE id = ?;', [id]);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -419,11 +712,79 @@ export class TransactionRepository {
     return this.findAll({ accountId });
   }
 
+  public async getAllTags(): Promise<string[]> {
+    try {
+      const result = await this.dbManager.executeQuery('SELECT id, name FROM tags ORDER BY name ASC;');
+      const tags: string[] = [];
+      for (let i = 0; i < result.rows.length; i++) {
+        const row = result.rows.item(i) as { name: string };
+        if (row.name) {
+          tags.push(row.name);
+        }
+      }
+      return tags;
+    } catch {
+      return [];
+    }
+  }
+
+  public async findTagsByTransactionId(transactionId: string): Promise<string[]> {
+    try {
+      const result = await this.dbManager.executeQuery(
+        'SELECT tg.name FROM transaction_tags tt JOIN tags tg ON tt.tag_id = tg.id WHERE tt.transaction_id = ?;',
+        [transactionId]
+      );
+      const tags: string[] = [];
+      for (let i = 0; i < result.rows.length; i++) {
+        const row = result.rows.item(i) as { name: string };
+        if (row.name) {
+          tags.push(row.name);
+        }
+      }
+      return tags;
+    } catch {
+      return [];
+    }
+  }
+
+  public async getMonthlyTotalsByCategory(categoryId: string): Promise<CategoryMonthlyTotal[]> {
+    try {
+      const result = await this.dbManager.executeQuery(
+        `SELECT substr(date, 1, 7) AS year_month, SUM(value) AS total, COUNT(*) AS count
+         FROM transactions
+         WHERE category_id = ? AND status = 'confirmada'
+         GROUP BY substr(date, 1, 7)
+         ORDER BY year_month DESC;`,
+        [categoryId]
+      );
+
+      const items: CategoryMonthlyTotal[] = [];
+      for (let i = 0; i < result.rows.length; i++) {
+        const row = result.rows.item(i) as MonthlyCategoryRow;
+        items.push({
+          yearMonth: row.year_month,
+          total: Number((row.total ?? 0).toFixed(2)),
+          count: Number(row.count ?? 0),
+        });
+      }
+      return items;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Erro ao agregar gastos mensais da categoria [${categoryId}]: ${message}`);
+    }
+  }
+
   public async getTotalsByPeriod(
     startDate: string,
     endDate: string,
     accountId?: string
-  ): Promise<{ totalIncome: number; totalExpense: number; balance: number }> {
+  ): Promise<{
+    totalIncome: number;
+    totalExpense: number;
+    fixedIncome: number;
+    extraIncome: number;
+    balance: number;
+  }> {
     try {
       const startDay = startDate.split('T')[0];
       const endDay = endDate.split('T')[0];
@@ -431,7 +792,9 @@ export class TransactionRepository {
       let sql = `
         SELECT
           SUM(CASE WHEN type = 'receita' AND status = 'confirmada' THEN value ELSE 0 END) AS total_income,
-          SUM(CASE WHEN type = 'despesa' AND status = 'confirmada' THEN value ELSE 0 END) AS total_expense
+          SUM(CASE WHEN type = 'despesa' AND status = 'confirmada' THEN value ELSE 0 END) AS total_expense,
+          SUM(CASE WHEN type = 'receita' AND status = 'confirmada' AND (is_extra_income = 0 OR is_extra_income IS NULL) THEN value ELSE 0 END) AS fixed_income,
+          SUM(CASE WHEN type = 'receita' AND status = 'confirmada' AND is_extra_income = 1 THEN value ELSE 0 END) AS extra_income
         FROM transactions
         WHERE substr(date, 1, 10) >= ? AND substr(date, 1, 10) <= ?
       `;
@@ -447,35 +810,126 @@ export class TransactionRepository {
 
       const totalIncome = row.total_income ?? 0;
       const totalExpense = row.total_expense ?? 0;
+      const fixedIncome = row.fixed_income ?? 0;
+      const extraIncome = row.extra_income ?? 0;
       const balance = totalIncome - totalExpense;
 
-      return { totalIncome, totalExpense, balance };
+      return { totalIncome, totalExpense, fixedIncome, extraIncome, balance };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Erro ao calcular totais por período: ${message}`);
     }
   }
 
-
-  public async getAggregateTotalsPerAccount(): Promise<Map<string, { income: number; expense: number }>> {
+  public async getTotalsBeforeDate(
+    beforeDateIso: string,
+    accountId?: string
+  ): Promise<{ totalIncome: number; totalExpense: number; netDelta: number }> {
     try {
+      const beforeDay = beforeDateIso.substring(0, 10);
+      let sql = `
+        SELECT
+          SUM(CASE WHEN type = 'receita' AND status = 'confirmada' THEN value ELSE 0 END) AS total_income,
+          SUM(CASE WHEN type = 'despesa' AND status = 'confirmada' THEN value ELSE 0 END) AS total_expense
+        FROM transactions
+        WHERE substr(date, 1, 10) < ?
+      `;
+      const params: (string | number | boolean | null)[] = [beforeDay];
+
+      if (accountId) {
+        sql += ' AND account_id = ?';
+        params.push(accountId);
+      }
+
+      const result = await this.dbManager.executeQuery(sql, params);
+      const row = result.rows.item(0) as TotalsRow;
+      const totalIncome = row.total_income ?? 0;
+      const totalExpense = row.total_expense ?? 0;
+
+      return {
+        totalIncome,
+        totalExpense,
+        netDelta: Number((totalIncome - totalExpense).toFixed(2)),
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Erro ao calcular saldo anterior a [${beforeDateIso}]: ${message}`);
+    }
+  }
+
+  public async findStatementTransactions(params: {
+    startDate: string;
+    endDate: string;
+    accountId?: string;
+  }): Promise<Transaction[]> {
+    try {
+      const startDay = params.startDate.substring(0, 10);
+      const endDay = params.endDate.substring(0, 10);
+
+      let sql = `
+        SELECT * FROM transactions
+        WHERE status = 'confirmada' AND substr(date, 1, 10) >= ? AND substr(date, 1, 10) <= ?
+      `;
+      const queryParams: (string | number | boolean | null)[] = [startDay, endDay];
+
+      if (params.accountId) {
+        sql += ' AND account_id = ?';
+        queryParams.push(params.accountId);
+      }
+
+      sql += ' ORDER BY date ASC, created_at ASC;';
+
+      const result = await this.dbManager.executeQuery(sql, queryParams);
+      const items: Transaction[] = [];
+
+      for (let i = 0; i < result.rows.length; i++) {
+        const row = result.rows.item(i) as TransactionRow;
+        items.push(this.mapRowToEntity(row));
+      }
+
+      return items;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Erro ao buscar transações de extrato: ${message}`);
+    }
+  }
+
+  public async getAggregateTotalsPerAccount(
+    asOfDate?: string
+  ): Promise<Map<string, { income: number; expense: number; fixedIncome: number; extraIncome: number }>> {
+    try {
+      const cutoffDay = (asOfDate ?? new Date().toISOString()).substring(0, 10);
       const sql = `
         SELECT
           account_id,
           SUM(CASE WHEN type = 'receita' AND status = 'confirmada' THEN value ELSE 0 END) AS total_income,
-          SUM(CASE WHEN type = 'despesa' AND status = 'confirmada' THEN value ELSE 0 END) AS total_expense
+          SUM(CASE WHEN type = 'despesa' AND status = 'confirmada' THEN value ELSE 0 END) AS total_expense,
+          SUM(CASE WHEN type = 'receita' AND status = 'confirmada' AND (is_extra_income = 0 OR is_extra_income IS NULL) THEN value ELSE 0 END) AS fixed_income,
+          SUM(CASE WHEN type = 'receita' AND status = 'confirmada' AND is_extra_income = 1 THEN value ELSE 0 END) AS extra_income
         FROM transactions
+        WHERE substr(date, 1, 10) <= ?
         GROUP BY account_id;
       `;
 
-      const result = await this.dbManager.executeQuery(sql, []);
-      const totalsMap = new Map<string, { income: number; expense: number }>();
+      const result = await this.dbManager.executeQuery(sql, [cutoffDay]);
+      const totalsMap = new Map<
+        string,
+        { income: number; expense: number; fixedIncome: number; extraIncome: number }
+      >();
 
       for (let i = 0; i < result.rows.length; i++) {
-        const row = result.rows.item(i) as { account_id: string; total_income: number | null; total_expense: number | null };
+        const row = result.rows.item(i) as {
+          account_id: string;
+          total_income: number | null;
+          total_expense: number | null;
+          fixed_income?: number | null;
+          extra_income?: number | null;
+        };
         totalsMap.set(row.account_id, {
           income: row.total_income ?? 0,
           expense: row.total_expense ?? 0,
+          fixedIncome: row.fixed_income ?? 0,
+          extraIncome: row.extra_income ?? 0,
         });
       }
 
@@ -563,4 +1017,3 @@ export class TransactionRepository {
     }
   }
 }
-

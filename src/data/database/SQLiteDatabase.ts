@@ -13,6 +13,7 @@ const hasNativeSQLite = Boolean(NativeModules && NativeModules.SQLite);
 
 interface SQLiteModule {
   openDatabase: (options: { name: string; location: string }) => Promise<RNSQLiteDatabase>;
+  deleteDatabase?: (options: { name: string; location: string }) => Promise<void>;
   enablePromise: (enable: boolean) => void;
 }
 
@@ -56,6 +57,8 @@ const formatSqliteErrorMessage = (error: unknown): string => {
 class WebSQLiteStore {
   private authTables = new Map<string, Record<string, unknown>[]>();
   private userStores = new Map<string, Map<string, Record<string, unknown>[]>>();
+  private userVersions = new Map<string, number>();
+  private tableColumns = new Map<string, Set<string>>();
   private activeUserId: string | null = null;
 
   public setActiveUser(userId: string | null): void {
@@ -66,10 +69,35 @@ class WebSQLiteStore {
     return this.activeUserId;
   }
 
+  public getUserVersion(): number {
+    const key = this.activeUserId || 'default';
+    return this.userVersions.get(key) ?? 0;
+  }
+
+  public setUserVersion(version: number): void {
+    const key = this.activeUserId || 'default';
+    this.userVersions.set(key, version);
+  }
+
+  public getTableColumns(tableName: string): string[] {
+    const cols = this.tableColumns.get(tableName.toLowerCase());
+    return cols ? Array.from(cols) : [];
+  }
+
+  private registerColumns(tableName: string, cols: string[]): void {
+    const lower = tableName.toLowerCase();
+    const existing = this.tableColumns.get(lower) ?? new Set<string>();
+    for (const c of cols) {
+      existing.add(c.toLowerCase());
+    }
+    this.tableColumns.set(lower, existing);
+  }
+
   private getTable(tableName: string): Record<string, unknown>[] {
-    const isAuth = tableName.toLowerCase() === 'users' || tableName.toLowerCase() === 'system_logs';
+    const lower = tableName.toLowerCase();
+    const isAuth = lower === 'users' || lower === 'system_logs';
     if (isAuth) {
-      return this.authTables.get(tableName.toLowerCase()) ?? [];
+      return this.authTables.get(lower) ?? [];
     }
     const key = this.activeUserId || 'default';
     let userStore = this.userStores.get(key);
@@ -77,16 +105,17 @@ class WebSQLiteStore {
       userStore = new Map<string, Record<string, unknown>[]>();
       this.userStores.set(key, userStore);
     }
-    if (tableName.toLowerCase() === 'categories' && !userStore.has('categories')) {
+    if (lower === 'categories' && !userStore.has('categories')) {
       this.seedDefaultCategoriesForStore(userStore);
     }
-    return userStore.get(tableName.toLowerCase()) ?? [];
+    return userStore.get(lower) ?? [];
   }
 
   private setTable(tableName: string, rows: Record<string, unknown>[]): void {
-    const isAuth = tableName.toLowerCase() === 'users' || tableName.toLowerCase() === 'system_logs';
+    const lower = tableName.toLowerCase();
+    const isAuth = lower === 'users' || lower === 'system_logs';
     if (isAuth) {
-      this.authTables.set(tableName.toLowerCase(), rows);
+      this.authTables.set(lower, rows);
       return;
     }
     const key = this.activeUserId || 'default';
@@ -95,14 +124,39 @@ class WebSQLiteStore {
       userStore = new Map<string, Record<string, unknown>[]>();
       this.userStores.set(key, userStore);
     }
-    userStore.set(tableName.toLowerCase(), rows);
+    userStore.set(lower, rows);
   }
 
-  private createTable(tableName: string): void {
-    const isAuth = tableName.toLowerCase() === 'users' || tableName.toLowerCase() === 'system_logs';
+  private createTable(tableName: string, rawSql?: string): void {
+    const lower = tableName.toLowerCase();
+    if (rawSql) {
+      const bodyMatch = rawSql.match(/\(([\s\S]+)\)/);
+      if (bodyMatch && bodyMatch[1]) {
+        const lines = bodyMatch[1].split(',').map((l) => l.trim());
+        const colNames: string[] = [];
+        for (const line of lines) {
+          const upperLine = line.toUpperCase();
+          if (
+            upperLine.startsWith('PRIMARY KEY') ||
+            upperLine.startsWith('FOREIGN KEY') ||
+            upperLine.startsWith('UNIQUE') ||
+            upperLine.startsWith('CHECK')
+          ) {
+            continue;
+          }
+          const firstWord = line.split(/\s+/)[0]?.replace(/[^a-zA-Z0-9_]/g, '');
+          if (firstWord) {
+            colNames.push(firstWord.toLowerCase());
+          }
+        }
+        this.registerColumns(lower, colNames);
+      }
+    }
+
+    const isAuth = lower === 'users' || lower === 'system_logs';
     if (isAuth) {
-      if (!this.authTables.has(tableName.toLowerCase())) {
-        this.authTables.set(tableName.toLowerCase(), []);
+      if (!this.authTables.has(lower)) {
+        this.authTables.set(lower, []);
       }
       return;
     }
@@ -112,21 +166,26 @@ class WebSQLiteStore {
       userStore = new Map<string, Record<string, unknown>[]>();
       this.userStores.set(key, userStore);
     }
-    if (!userStore.has(tableName.toLowerCase())) {
-      userStore.set(tableName.toLowerCase(), []);
+    if (!userStore.has(lower)) {
+      if (lower === 'categories') {
+        this.seedDefaultCategoriesForStore(userStore);
+      } else {
+        userStore.set(lower, []);
+      }
     }
   }
 
   private deleteTable(tableName: string): void {
-    const isAuth = tableName.toLowerCase() === 'users' || tableName.toLowerCase() === 'system_logs';
+    const lower = tableName.toLowerCase();
+    const isAuth = lower === 'users' || lower === 'system_logs';
     if (isAuth) {
-      this.authTables.delete(tableName.toLowerCase());
+      this.authTables.delete(lower);
       return;
     }
     const key = this.activeUserId || 'default';
     const userStore = this.userStores.get(key);
     if (userStore) {
-      userStore.delete(tableName.toLowerCase());
+      userStore.delete(lower);
     }
   }
 
@@ -149,14 +208,64 @@ class WebSQLiteStore {
     const trimmed = sql.trim();
     const upper = trimmed.toUpperCase();
 
-    if (upper.startsWith('PRAGMA') || upper.startsWith('CREATE INDEX')) {
+    if (upper.startsWith('PRAGMA')) {
+      const setVersionMatch = trimmed.match(/PRAGMA\s+user_version\s*=\s*(\d+)/i);
+      if (setVersionMatch && setVersionMatch[1]) {
+        this.setUserVersion( parseInt(setVersionMatch[1], 10));
+        return this.createResultSet([]);
+      }
+      if (/PRAGMA\s+user_version/i.test(trimmed)) {
+        return this.createResultSet([{ user_version: this.getUserVersion() }]);
+      }
+      if (/PRAGMA\s+table_info\(([a-zA-Z0-9_]+)\)/i.test(trimmed)) {
+        const tMatch = trimmed.match(/PRAGMA\s+table_info\(([a-zA-Z0-9_]+)\)/i);
+        const tName = tMatch && tMatch[1] ? tMatch[1].toLowerCase() : '';
+        const cols = this.getTableColumns(tName).map((name, idx) => ({ cid: idx, name }));
+        return this.createResultSet(cols);
+      }
+      return this.createResultSet([]);
+    }
+
+    if (upper.startsWith('BEGIN') || upper.startsWith('COMMIT') || upper.startsWith('ROLLBACK')) {
+      return this.createResultSet([]);
+    }
+
+    if (upper.startsWith('CREATE INDEX') || upper.startsWith('CREATE UNIQUE INDEX')) {
+      return this.createResultSet([]);
+    }
+
+    if (upper.startsWith('ALTER TABLE')) {
+      const alterMatch = trimmed.match(/ALTER\s+TABLE\s+([a-zA-Z0-9_]+)\s+ADD\s+(?:COLUMN\s+)?([a-zA-Z0-9_]+)/i);
+      if (alterMatch && alterMatch[1] && alterMatch[2]) {
+        const tbl = alterMatch[1].toLowerCase();
+        const col = alterMatch[2].toLowerCase();
+        const existingCols = this.tableColumns.get(tbl);
+        if (existingCols && existingCols.has(col)) {
+          throw new Error(`duplicate column name: ${col}`);
+        }
+        this.registerColumns(tbl, [col]);
+        const defaultMatch = trimmed.match(/DEFAULT\s+('[^']*'|\d+(?:\.\d+)?)/i);
+        if (defaultMatch && defaultMatch[1] !== undefined) {
+          const rawDefault = defaultMatch[1];
+          const val = rawDefault.startsWith("'")
+            ? rawDefault.slice(1, -1)
+            : Number(rawDefault);
+          const rows = this.getTable(tbl);
+          for (const r of rows) {
+            if (r[col] === undefined) {
+              r[col] = val;
+            }
+          }
+          this.setTable(tbl, rows);
+        }
+      }
       return this.createResultSet([]);
     }
 
     if (upper.startsWith('CREATE TABLE')) {
       const match = trimmed.match(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-zA-Z0-9_]+)/i);
       if (match && match[1]) {
-        this.createTable(match[1].toLowerCase());
+        this.createTable(match[1].toLowerCase(), trimmed);
       }
       return this.createResultSet([]);
     }
@@ -169,7 +278,7 @@ class WebSQLiteStore {
       return this.createResultSet([]);
     }
 
-    if (upper.startsWith('INSERT INTO')) {
+    if (upper.startsWith('INSERT')) {
       return this.handleInsert(trimmed, params);
     }
 
@@ -189,7 +298,9 @@ class WebSQLiteStore {
   }
 
   private handleInsert(sql: string, params: (string | number | boolean | null)[]): ResultSet {
-    const match = sql.match(/INSERT\s+INTO\s+([a-zA-Z0-9_]+)\s*\(([^)]+)\)/i);
+    const isIgnore = /INSERT\s+OR\s+IGNORE\s+INTO/i.test(sql);
+    const isReplace = /INSERT\s+OR\s+REPLACE\s+INTO/i.test(sql);
+    const match = sql.match(/INSERT\s+(?:OR\s+(?:IGNORE|REPLACE)\s+)?INTO\s+([a-zA-Z0-9_]+)\s*\(([^)]+)\)/i);
     if (!match || !match[1] || !match[2]) {
       return this.createResultSet([]);
     }
@@ -198,6 +309,7 @@ class WebSQLiteStore {
     const columns = match[2].split(',').map((c) => c.trim().toLowerCase());
 
     this.createTable(tableName);
+    this.registerColumns(tableName, columns);
 
     const row: Record<string, unknown> = {};
     columns.forEach((col, index) => {
@@ -205,38 +317,167 @@ class WebSQLiteStore {
     });
 
     const currentRows = this.getTable(tableName);
+
+    if (isReplace) {
+      let filtered = currentRows;
+      if (tableName === 'daily_limits') {
+        filtered = currentRows.filter((r) => Number(r.day_of_week) !== Number(row.day_of_week));
+      } else if (tableName === 'app_settings') {
+        filtered = currentRows.filter((r) => String(r.key) !== String(row.key));
+      } else if (tableName === 'category_spending_goals') {
+        filtered = currentRows.filter(
+          (r) => r.id !== row.id && String(r.category_id) !== String(row.category_id)
+        );
+      } else if (tableName === 'bill_payments') {
+        filtered = currentRows.filter(
+          (r) =>
+            r.id !== row.id &&
+            !(
+              String(r.bill_id) === String(row.bill_id) &&
+              Number(r.month) === Number(row.month) &&
+              Number(r.year) === Number(row.year)
+            )
+        );
+      } else if (tableName === 'transaction_tags') {
+        filtered = currentRows.filter(
+          (r) =>
+            !(
+              String(r.transaction_id) === String(row.transaction_id) &&
+              String(r.tag_id) === String(row.tag_id)
+            )
+        );
+      } else if (row.id !== undefined) {
+        filtered = currentRows.filter((r) => r.id !== row.id);
+      }
+      filtered.push(row);
+      this.setTable(tableName, filtered);
+      return this.createResultSet([], 1, 1);
+    }
+
+    if (isIgnore) {
+      if (tableName === 'tags') {
+        const exists = currentRows.some(
+          (r) => r.id === row.id || String(r.name).toLowerCase() === String(row.name).toLowerCase()
+        );
+        if (exists) return this.createResultSet([], 0, 0);
+      } else if (tableName === 'transaction_tags') {
+        const exists = currentRows.some(
+          (r) => r.transaction_id === row.transaction_id && r.tag_id === row.tag_id
+        );
+        if (exists) return this.createResultSet([], 0, 0);
+      } else if (tableName === 'schema_migrations') {
+        const exists = currentRows.some((r) => Number(r.version) === Number(row.version));
+        if (exists) return this.createResultSet([], 0, 0);
+      } else if (row.id !== undefined) {
+        const exists = currentRows.some((r) => r.id === row.id);
+        if (exists) return this.createResultSet([], 0, 0);
+      }
+    }
+
     currentRows.push(row);
     this.setTable(tableName, currentRows);
     return this.createResultSet([], 1, 1);
   }
 
   private handleUpdate(sql: string, params: (string | number | boolean | null)[]): ResultSet {
-    const tableMatch = sql.match(/UPDATE\s+([a-zA-Z0-9_]+)\s+SET\s+([^W]+)\s+WHERE\s+(.+)/i);
-    if (!tableMatch || !tableMatch[1] || !tableMatch[2]) {
+    const tableMatch = sql.match(/UPDATE\s+([a-zA-Z0-9_]+)\s+SET\s+([\s\S]+?)\s+WHERE\s+([\s\S]+?);?$/i);
+    if (!tableMatch || !tableMatch[1] || !tableMatch[2] || !tableMatch[3]) {
       return this.createResultSet([]);
     }
 
     const tableName = tableMatch[1].toLowerCase();
     const setClause = tableMatch[2];
+    const whereClause = tableMatch[3].trim();
     const columns = setClause.split(',').map((part) => part.split('=')[0].trim().toLowerCase());
 
     const rows = this.getTable(tableName);
-    const whereId = params[params.length - 1];
-
     let rowsAffected = 0;
-    for (const row of rows) {
-      if (row.id === whereId) {
-        columns.forEach((col, index) => {
-          row[col] = params[index];
-        });
-        rowsAffected++;
+
+    if (/installment_group_id\s*=\s*\?\s+AND\s+installment_number\s*>=\s*\?/i.test(whereClause)) {
+      const groupId = params[columns.length];
+      const minNum = Number(params[columns.length + 1]);
+      for (const row of rows) {
+        if (row.installment_group_id === groupId && Number(row.installment_number) >= minNum) {
+          columns.forEach((col, index) => {
+            row[col] = params[index];
+          });
+          rowsAffected++;
+        }
+      }
+    } else if (/recurrence_parent_id\s*=\s*\?/i.test(whereClause)) {
+      const parentId = params[columns.length];
+      for (const row of rows) {
+        if (row.recurrence_parent_id === parentId || row.id === parentId) {
+          columns.forEach((col, index) => {
+            row[col] = params[index];
+          });
+          rowsAffected++;
+        }
+      }
+    } else {
+      const whereId = params[params.length - 1];
+      for (const row of rows) {
+        if (row.id === whereId) {
+          columns.forEach((col, index) => {
+            row[col] = params[index];
+          });
+          rowsAffected++;
+        }
       }
     }
+
     this.setTable(tableName, rows);
     return this.createResultSet([], rowsAffected);
   }
 
   private handleDelete(sql: string, params: (string | number | boolean | null)[]): ResultSet {
+    if (/DELETE\s+FROM\s+zero_based_allocations\s+WHERE\s+month\s*=\s*\?\s+AND\s+year\s*=\s*\?/i.test(sql)) {
+      const month = Number(params[0]);
+      const year = Number(params[1]);
+      const rows = this.getTable('zero_based_allocations');
+      const remaining = rows.filter((r) => !(Number(r.month) === month && Number(r.year) === year));
+      this.setTable('zero_based_allocations', remaining);
+      return this.createResultSet([], rows.length - remaining.length);
+    }
+    if (/DELETE\s+FROM\s+bill_payments\s+WHERE\s+bill_id\s*=\s*\?\s+AND\s+month\s*=\s*\?\s+AND\s+year\s*=\s*\?/i.test(sql)) {
+      const billId = String(params[0]);
+      const month = Number(params[1]);
+      const year = Number(params[2]);
+      const rows = this.getTable('bill_payments');
+      const remaining = rows.filter(
+        (r) =>
+          !(
+            String(r.bill_id) === billId &&
+            Number(r.month) === month &&
+            Number(r.year) === year
+          )
+      );
+      this.setTable('bill_payments', remaining);
+      return this.createResultSet([], rows.length - remaining.length);
+    }
+    if (/DELETE\s+FROM\s+transactions\s+WHERE\s+installment_group_id\s*=\s*\?\s+AND\s+installment_number\s*>=\s*\?/i.test(sql)) {
+      const groupId = params[0];
+      const minNum = Number(params[1]);
+      const rows = this.getTable('transactions');
+      const initialLen = rows.length;
+      const deletedIds = new Set<string>();
+      const remaining = rows.filter((r) => {
+        const match = r.installment_group_id === groupId && Number(r.installment_number) >= minNum;
+        if (match && typeof r.id === 'string') {
+          deletedIds.add(r.id);
+        }
+        return !match;
+      });
+      this.setTable('transactions', remaining);
+      if (deletedIds.size > 0) {
+        const txTags = this.getTable('transaction_tags').filter(
+          (tt) => !deletedIds.has(String(tt.transaction_id))
+        );
+        this.setTable('transaction_tags', txTags);
+      }
+      return this.createResultSet([], initialLen - remaining.length);
+    }
+
     const match = sql.match(/DELETE\s+FROM\s+([a-zA-Z0-9_]+)(?:\s+WHERE\s+([a-zA-Z0-9_]+)\s*([<>=!]+)\s*\?)?/i);
     if (!match || !match[1]) {
       return this.createResultSet([]);
@@ -268,6 +509,15 @@ class WebSQLiteStore {
       remaining = rows.filter((r) => r[targetCol] !== targetVal);
     }
 
+    if (tableName === 'transactions' && targetCol === 'id' && operator === '=') {
+      const txTags = this.getTable('transaction_tags').filter((tt) => tt.transaction_id !== targetVal);
+      this.setTable('transaction_tags', txTags);
+    }
+    if (tableName === 'recurring_bills' && targetCol === 'id' && operator === '=') {
+      const payments = this.getTable('bill_payments').filter((bp) => bp.bill_id !== targetVal);
+      this.setTable('bill_payments', payments);
+    }
+
     this.setTable(tableName, remaining);
     return this.createResultSet([], initialLen - remaining.length);
   }
@@ -281,7 +531,85 @@ class WebSQLiteStore {
       return this.createResultSet(sorted);
     }
 
+    if (upper.includes('FROM TRANSACTION_TAGS') && upper.includes('JOIN TAGS') && !upper.includes('FROM TRANSACTIONS')) {
+      const txTags = this.getTable('transaction_tags');
+      const allTags = this.getTable('tags');
+      const tagMap = new Map<string, string>();
+      for (const t of allTags) {
+        tagMap.set(String(t.id), String(t.name));
+      }
+
+      if (upper.includes('WHERE TT.TRANSACTION_ID = ?') || upper.includes('WHERE TRANSACTION_ID = ?')) {
+        const txId = String(params[0]);
+        const matched = txTags
+          .filter((tt) => String(tt.transaction_id) === txId)
+          .map((tt) => ({
+            transaction_id: txId,
+            tag_id: tt.tag_id,
+            name: tagMap.get(String(tt.tag_id)) ?? '',
+          }))
+          .filter((item) => Boolean(item.name));
+        return this.createResultSet(matched);
+      }
+
+      const allMapped = txTags
+        .map((tt) => ({
+          transaction_id: tt.transaction_id,
+          tag_id: tt.tag_id,
+          name: tagMap.get(String(tt.tag_id)) ?? '',
+        }))
+        .filter((item) => Boolean(item.name));
+      return this.createResultSet(allMapped);
+    }
+
+    if (upper.includes('FROM TAGS')) {
+      let rows = [...this.getTable('tags')];
+      if (upper.includes('WHERE NAME = ?') || upper.includes('WHERE LOWER(NAME) = ?')) {
+        const target = String(params[0]).toLowerCase().trim();
+        rows = rows.filter((r) => String(r.name).toLowerCase() === target);
+      } else if (upper.includes('WHERE NAME LIKE ?')) {
+        const pattern = String(params[0]).replace(/%/g, '').toLowerCase();
+        rows = rows.filter((r) => String(r.name).toLowerCase().includes(pattern));
+      }
+      rows.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      return this.createResultSet(rows);
+    }
+
+    if (upper.includes('GROUP BY SUBSTR(DATE, 1, 7)') && upper.includes('FROM TRANSACTIONS')) {
+      const catId = String(params[0]);
+      const allTx = this.getTable('transactions').filter((tx) => {
+        if (String(tx.category_id) !== catId) return false;
+        if (upper.includes("STATUS = 'CONFIRMADA'") && tx.status !== 'confirmada') return false;
+        if (upper.includes("TYPE = 'DESPESA'") && tx.type !== 'despesa') return false;
+        return true;
+      });
+
+      const grouped = new Map<string, { total: number; count: number }>();
+      for (const tx of allTx) {
+        const ym = String(tx.date).substring(0, 7);
+        const cur = grouped.get(ym) ?? { total: 0, count: 0 };
+        cur.total = Number((cur.total + Number(tx.value)).toFixed(2));
+        cur.count += 1;
+        grouped.set(ym, cur);
+      }
+
+      const resultRows = Array.from(grouped.entries())
+        .map(([year_month, data]) => ({
+          year_month,
+          total: data.total,
+          count: data.count,
+        }))
+        .sort((a, b) => b.year_month.localeCompare(a.year_month));
+
+      return this.createResultSet(resultRows);
+    }
+
     if (upper.includes('COUNT(*) AS COUNT') && upper.includes('FROM TRANSACTIONS')) {
+      if (upper.includes('WHERE CATEGORY_ID = ?') && params.length === 1 && !upper.includes('AND')) {
+        const catId = params[0];
+        const count = this.getTable('transactions').filter((r) => r.category_id === catId).length;
+        return this.createResultSet([{ count }]);
+      }
       const rows = this.filterTransactions(params, sql);
       return this.createResultSet([{ count: rows.length }]);
     }
@@ -289,14 +617,28 @@ class WebSQLiteStore {
     if (upper.includes('SUM(CASE WHEN TYPE =') && upper.includes('FROM TRANSACTIONS')) {
       if (upper.includes('GROUP BY ACCOUNT_ID')) {
         const allTx = this.getTable('transactions');
-        const grouped = new Map<string, { total_income: number; total_expense: number }>();
+        const grouped = new Map<string, { total_income: number; total_expense: number; fixed_income: number; extra_income: number }>();
+        const maxDateParam = params.length > 0 && typeof params[0] === 'string' ? String(params[0]).substring(0, 10) : null;
 
         for (const tx of allTx) {
           if (tx.status !== 'confirmada') continue;
+          const txDay = String(tx.date).substring(0, 10);
+          if (maxDateParam && txDay > maxDateParam) continue;
+
           const accId = String(tx.account_id);
-          const current = grouped.get(accId) ?? { total_income: 0, total_expense: 0 };
-          if (tx.type === 'receita') current.total_income += Number(tx.value);
-          if (tx.type === 'despesa') current.total_expense += Number(tx.value);
+          const current = grouped.get(accId) ?? { total_income: 0, total_expense: 0, fixed_income: 0, extra_income: 0 };
+          const val = Number(tx.value);
+          if (tx.type === 'receita') {
+            current.total_income += val;
+            if (Number(tx.is_extra_income) === 1) {
+              current.extra_income += val;
+            } else {
+              current.fixed_income += val;
+            }
+          }
+          if (tx.type === 'despesa') {
+            current.total_expense += val;
+          }
           grouped.set(accId, current);
         }
 
@@ -304,9 +646,79 @@ class WebSQLiteStore {
           account_id,
           total_income: totals.total_income,
           total_expense: totals.total_expense,
+          fixed_income: totals.fixed_income,
+          extra_income: totals.extra_income,
         }));
 
         return this.createResultSet(resultRows);
+      }
+
+      if (upper.includes('SUBSTR(DATE, 1, 10) < ?')) {
+        const beforeDay = String(params[0]).substring(0, 10);
+        const accountId = params.length > 1 && params[1] ? String(params[1]) : undefined;
+        const rows = this.getTable('transactions').filter((tx) => {
+          if (tx.status !== 'confirmada') return false;
+          if (accountId && tx.account_id !== accountId) return false;
+          return String(tx.date).substring(0, 10) < beforeDay;
+        });
+        let totalIncome = 0;
+        let totalExpense = 0;
+        let fixedIncome = 0;
+        let extraIncome = 0;
+        for (const tx of rows) {
+          const val = Number(tx.value);
+          if (tx.type === 'receita') {
+            totalIncome += val;
+            if (Number(tx.is_extra_income) === 1) {
+              extraIncome += val;
+            } else {
+              fixedIncome += val;
+            }
+          }
+          if (tx.type === 'despesa') totalExpense += val;
+        }
+        return this.createResultSet([
+          {
+            total_income: totalIncome,
+            total_expense: totalExpense,
+            fixed_income: fixedIncome,
+            extra_income: extraIncome,
+          },
+        ]);
+      }
+
+      if (upper.includes('WHERE ACCOUNT_ID = ?') && !upper.includes('SUBSTR(DATE, 1, 10) >=')) {
+        const accountId = String(params[0]);
+        const maxDateParam = params.length > 1 && typeof params[1] === 'string' ? String(params[1]).substring(0, 10) : null;
+        const rows = this.getTable('transactions').filter((tx) => {
+          if (tx.account_id !== accountId || tx.status !== 'confirmada') return false;
+          if (maxDateParam && String(tx.date).substring(0, 10) > maxDateParam) return false;
+          return true;
+        });
+        let totalIncome = 0;
+        let totalExpense = 0;
+        let fixedIncome = 0;
+        let extraIncome = 0;
+        for (const tx of rows) {
+          const val = Number(tx.value);
+          if (tx.type === 'receita') {
+            totalIncome += val;
+            if (Number(tx.is_extra_income) === 1) {
+              extraIncome += val;
+            } else {
+              fixedIncome += val;
+            }
+          }
+          if (tx.type === 'despesa') totalExpense += val;
+        }
+        return this.createResultSet([
+          {
+            total_income: totalIncome,
+            total_expense: totalExpense,
+            fixed_income: fixedIncome,
+            extra_income: extraIncome,
+          },
+        ]);
       }
 
       const startDate = String(params[0]).split('T')[0];
@@ -323,13 +735,30 @@ class WebSQLiteStore {
 
       let totalIncome = 0;
       let totalExpense = 0;
+      let fixedIncome = 0;
+      let extraIncome = 0;
 
       for (const tx of rows) {
-        if (tx.type === 'receita') totalIncome += Number(tx.value);
-        if (tx.type === 'despesa') totalExpense += Number(tx.value);
+        const val = Number(tx.value);
+        if (tx.type === 'receita') {
+          totalIncome += val;
+          if (Number(tx.is_extra_income) === 1) {
+            extraIncome += val;
+          } else {
+            fixedIncome += val;
+          }
+        }
+        if (tx.type === 'despesa') totalExpense += val;
       }
 
-      return this.createResultSet([{ total_income: totalIncome, total_expense: totalExpense }]);
+      return this.createResultSet([
+        {
+          total_income: totalIncome,
+          total_expense: totalExpense,
+          fixed_income: fixedIncome,
+          extra_income: extraIncome,
+        },
+      ]);
     }
 
     const fromMatch = sql.match(/FROM\s+([a-zA-Z0-9_]+)/i);
@@ -341,7 +770,12 @@ class WebSQLiteStore {
     let rows = [...this.getTable(tableName)];
 
     if (tableName === 'transactions') {
-      rows = this.filterTransactions(params, sql);
+      if (sql.includes('WHERE id = ?')) {
+        const targetId = params[0];
+        rows = rows.filter((r) => r.id === targetId);
+      } else {
+        rows = this.filterTransactions(params, sql);
+      }
     } else if (sql.includes('WHERE id = ?')) {
       const targetId = params[0];
       rows = rows.filter((r) => r.id === targetId);
@@ -370,14 +804,76 @@ class WebSQLiteStore {
           r.category_id === catId &&
           Number(r.month) === Number(month) &&
           Number(r.year) === Number(year) &&
-          r.period_type === periodType
+          (r.period_type ?? 'mensal') === periodType
       );
+    } else if (tableName === 'budgets' && sql.includes('WHERE month = ? AND year = ? AND period_type = ?')) {
+      const month = params[0];
+      const year = params[1];
+      const periodType = params[2];
+      rows = rows
+        .filter(
+          (r) =>
+            Number(r.month) === Number(month) &&
+            Number(r.year) === Number(year) &&
+            (r.period_type ?? 'mensal') === periodType
+        )
+        .sort((a, b) => Number(b.limit_value) - Number(a.limit_value));
+    } else if (tableName === 'budgets' && sql.includes('WHERE year = ? AND period_type = ?')) {
+      const year = params[0];
+      const periodType = params[1];
+      rows = rows
+        .filter((r) => Number(r.year) === Number(year) && (r.period_type ?? 'mensal') === periodType)
+        .sort((a, b) => Number(b.limit_value) - Number(a.limit_value));
     } else if (tableName === 'budgets' && sql.includes('WHERE month = ? AND year = ?')) {
       const month = params[0];
       const year = params[1];
       rows = rows
-        .filter((r) => Number(r.month) === Number(month) && Number(r.year) === Number(year))
+        .filter(
+          (r) =>
+            Number(r.month) === Number(month) &&
+            Number(r.year) === Number(year) &&
+            (r.period_type ?? 'mensal') === 'mensal'
+        )
         .sort((a, b) => Number(b.limit_value) - Number(a.limit_value));
+    } else if (tableName === 'zero_based_allocations' && sql.includes('WHERE month = ? AND year = ?')) {
+      const month = Number(params[0]);
+      const year = Number(params[1]);
+      rows = rows.filter((r) => Number(r.month) === month && Number(r.year) === year);
+    } else if (tableName === 'daily_limits' && sql.includes('WHERE day_of_week = ?')) {
+      const dow = Number(params[0]);
+      rows = rows.filter((r) => Number(r.day_of_week) === dow);
+    } else if (tableName === 'app_settings' && sql.includes('WHERE key = ?')) {
+      const k = String(params[0]);
+      rows = rows.filter((r) => String(r.key) === k);
+    } else if (tableName === 'category_spending_goals' && sql.includes('WHERE category_id = ?')) {
+      const catId = String(params[0]);
+      rows = rows.filter((r) => String(r.category_id) === catId);
+    } else if (tableName === 'recurring_bills') {
+      if (sql.includes('WHERE is_active = 1')) {
+        rows = rows.filter((r) => Number(r.is_active ?? 1) === 1);
+      }
+      rows.sort((a, b) => Number(a.due_day) - Number(b.due_day));
+    } else if (tableName === 'bill_payments') {
+      if (sql.includes('WHERE bill_id = ? AND month = ? AND year = ?')) {
+        const billId = String(params[0]);
+        const month = Number(params[1]);
+        const year = Number(params[2]);
+        rows = rows.filter(
+          (r) =>
+            String(r.bill_id) === billId &&
+            Number(r.month) === month &&
+            Number(r.year) === year
+        );
+      } else if (sql.includes('WHERE month = ? AND year = ?')) {
+        const month = Number(params[0]);
+        const year = Number(params[1]);
+        rows = rows.filter((r) => Number(r.month) === month && Number(r.year) === year);
+      } else if (sql.includes('WHERE bill_id = ?')) {
+        const billId = String(params[0]);
+        rows = rows.filter((r) => String(r.bill_id) === billId);
+      }
+    } else if (tableName === 'events') {
+      rows.sort((a, b) => String(b.start_date ?? '').localeCompare(String(a.start_date ?? '')));
     } else if (tableName === 'accounts') {
       rows.sort((a, b) => String(a.name).localeCompare(String(b.name)));
     } else if (tableName === 'categories') {
@@ -400,6 +896,28 @@ class WebSQLiteStore {
     return this.createResultSet(rows);
   }
 
+  private getTagMatchedTransactionIds(searchLower: string, exactOnly: boolean = false): Set<string> {
+    const matchedTagIds = new Set<string>();
+    const tags = this.getTable('tags');
+    for (const t of tags) {
+      const nameLower = String(t.name).toLowerCase();
+      if (exactOnly ? nameLower === searchLower : nameLower.includes(searchLower)) {
+        matchedTagIds.add(String(t.id));
+      }
+    }
+
+    const matchedTxIds = new Set<string>();
+    if (matchedTagIds.size > 0) {
+      const txTags = this.getTable('transaction_tags');
+      for (const tt of txTags) {
+        if (matchedTagIds.has(String(tt.tag_id))) {
+          matchedTxIds.add(String(tt.transaction_id));
+        }
+      }
+    }
+    return matchedTxIds;
+  }
+
   private filterTransactions(
     params: (string | number | boolean | null)[],
     sql: string
@@ -407,44 +925,129 @@ class WebSQLiteStore {
     let rows = [...this.getTable('transactions')];
     const upper = sql.toUpperCase();
 
-    if (upper.includes('ACCOUNT_ID = ?')) {
-      const accId = params.find((p) => p !== null && !String(p).includes('T') && !String(p).includes('%'));
-      if (accId) {
-        rows = rows.filter((r) => r.account_id === accId);
+    const whereMatch = sql.match(/WHERE\s+([\s\S]+?)(?:ORDER\s+BY|GROUP\s+BY|LIMIT|;|$)/i);
+    if (whereMatch && whereMatch[1]) {
+      const rawWhere = whereMatch[1].trim();
+      const parts = rawWhere.split(/\s+AND\s+/i);
+      let paramIdx = 0;
+
+      for (const part of parts) {
+        const cleanPart = part.trim();
+        const qCount = (cleanPart.match(/\?/g) || []).length;
+        const partParams = params.slice(paramIdx, paramIdx + qCount);
+        paramIdx += qCount;
+
+        if (/^account_id\s*=\s*\?$/i.test(cleanPart)) {
+          const val = partParams[0];
+          rows = rows.filter((r) => r.account_id === val);
+        } else if (/^category_id\s*=\s*\?$/i.test(cleanPart)) {
+          const val = partParams[0];
+          rows = rows.filter((r) => r.category_id === val);
+        } else if (/^category_id\s+IN\s*\(/i.test(cleanPart)) {
+          const set = new Set(partParams.map(String));
+          rows = rows.filter((r) => set.has(String(r.category_id)));
+        } else if (/^value\s*>=\s*\?$/i.test(cleanPart)) {
+          const min = Number(partParams[0]);
+          rows = rows.filter((r) => Number(r.value) >= min);
+        } else if (/^value\s*<=\s*\?$/i.test(cleanPart)) {
+          const max = Number(partParams[0]);
+          rows = rows.filter((r) => Number(r.value) <= max);
+        } else if (/^type\s*=\s*\?$/i.test(cleanPart)) {
+          const t = partParams[0];
+          rows = rows.filter((r) => r.type === t);
+        } else if (/^status\s*=\s*\?$/i.test(cleanPart)) {
+          const st = partParams[0];
+          rows = rows.filter((r) => (r.status ?? 'confirmada') === st);
+        } else if (/^status\s*=\s*'confirmada'$/i.test(cleanPart)) {
+          rows = rows.filter((r) => (r.status ?? 'confirmada') === 'confirmada');
+        } else if (/^is_extra_income\s*=\s*\?$/i.test(cleanPart)) {
+          const flag = Number(partParams[0]);
+          rows = rows.filter((r) => Number(r.is_extra_income ?? 0) === flag);
+        } else if (/^is_recurring\s*=\s*\?$/i.test(cleanPart)) {
+          const flag = Number(partParams[0]);
+          rows = rows.filter((r) => Number(r.is_recurring ?? 0) === flag);
+        } else if (/^recurrence_parent_id\s*=\s*\?$/i.test(cleanPart)) {
+          const parentId = partParams[0];
+          rows = rows.filter((r) => r.recurrence_parent_id === parentId);
+        } else if (/^installment_group_id\s*=\s*\?$/i.test(cleanPart)) {
+          const groupId = partParams[0];
+          rows = rows.filter((r) => r.installment_group_id === groupId);
+        } else if (/^event_id\s*=\s*\?$/i.test(cleanPart)) {
+          const evId = partParams[0];
+          rows = rows.filter((r) => r.event_id === evId);
+        } else if (/^event_id\s+IS\s+NULL$/i.test(cleanPart)) {
+          rows = rows.filter((r) => !r.event_id);
+        } else if (/^installment_number\s*>=\s*\?$/i.test(cleanPart)) {
+          const minNum = Number(partParams[0]);
+          rows = rows.filter((r) => Number(r.installment_number ?? 0) >= minNum);
+        } else if (/^date\s*>=\s*\?$/i.test(cleanPart)) {
+          const start = String(partParams[0]);
+          rows = rows.filter((r) => String(r.date) >= start);
+        } else if (/^date\s*<=\s*\?$/i.test(cleanPart)) {
+          const end = String(partParams[0]);
+          rows = rows.filter((r) => String(r.date) <= end);
+        } else if (/^substr\(date,\s*1,\s*10\)\s*>=\s*\?$/i.test(cleanPart)) {
+          const minDay = String(partParams[0]).substring(0, 10);
+          rows = rows.filter((r) => String(r.date).substring(0, 10) >= minDay);
+        } else if (/^substr\(date,\s*1,\s*10\)\s*<=\s*\?$/i.test(cleanPart)) {
+          const maxDay = String(partParams[0]).substring(0, 10);
+          rows = rows.filter((r) => String(r.date).substring(0, 10) <= maxDay);
+        } else if (/^substr\(date,\s*1,\s*10\)\s*<\s*\?$/i.test(cleanPart)) {
+          const beforeDay = String(partParams[0]).substring(0, 10);
+          rows = rows.filter((r) => String(r.date).substring(0, 10) < beforeDay);
+        } else if (/^substr\(date,\s*1,\s*7\)\s*=\s*\?$/i.test(cleanPart)) {
+          const ym = String(partParams[0]);
+          rows = rows.filter((r) => String(r.date).substring(0, 7) === ym);
+        } else if (cleanPart.toUpperCase().includes('DESCRIPTION LIKE ?')) {
+          const rawSearch = String(partParams[0] ?? '').replace(/%/g, '').toLowerCase();
+          const tagTxIds = this.getTagMatchedTransactionIds(rawSearch, false);
+          rows = rows.filter((r) => {
+            const descMatch = String(r.description ?? '').toLowerCase().includes(rawSearch);
+            const notesMatch = String(r.notes ?? '').toLowerCase().includes(rawSearch);
+            const jsonTagsMatch = String(r.tags ?? '').toLowerCase().includes(rawSearch);
+            const normTagMatch = tagTxIds.has(String(r.id));
+            return descMatch || notesMatch || jsonTagsMatch || normTagMatch;
+          });
+        } else if (cleanPart.toUpperCase().includes('TRANSACTION_TAGS')) {
+          const rawTag = String(partParams[0] ?? '').replace(/%/g, '').toLowerCase().trim();
+          const tagTxIds = this.getTagMatchedTransactionIds(rawTag, true);
+          rows = rows.filter((r) => {
+            if (tagTxIds.has(String(r.id))) return true;
+            try {
+              const arr = JSON.parse(String(r.tags ?? '[]')) as string[];
+              return arr.some((t) => String(t).toLowerCase().trim() === rawTag);
+            } catch {
+              return false;
+            }
+          });
+        }
       }
     }
 
-    if (upper.includes('CATEGORY_ID = ?')) {
-      const catId = params.find((p) => p !== null && !String(p).includes('T') && !String(p).includes('%'));
-      if (catId) {
-        rows = rows.filter((r) => r.category_id === catId);
-      }
+    const isAsc = /ORDER\s+BY\s+[^;]*\bASC\b/i.test(sql);
+    if (upper.includes('ORDER BY VALUE')) {
+      rows.sort((a, b) => (isAsc ? Number(a.value) - Number(b.value) : Number(b.value) - Number(a.value)));
+    } else if (upper.includes('ORDER BY CATEGORY_ID')) {
+      rows.sort((a, b) =>
+        isAsc
+          ? String(a.category_id).localeCompare(String(b.category_id))
+          : String(b.category_id).localeCompare(String(a.category_id))
+      );
+    } else if (upper.includes('ORDER BY INSTALLMENT_NUMBER ASC')) {
+      rows.sort((a, b) => Number(a.installment_number ?? 0) - Number(b.installment_number ?? 0));
+    } else {
+      rows.sort((a, b) => {
+        const dateA = String(a.date);
+        const dateB = String(b.date);
+        const cmp = isAsc ? dateA.localeCompare(dateB) : dateB.localeCompare(dateA);
+        if (cmp !== 0) return cmp;
+        const createdA = String(a.created_at ?? '');
+        const createdB = String(b.created_at ?? '');
+        const createdCmp = isAsc ? createdA.localeCompare(createdB) : createdB.localeCompare(createdA);
+        if (createdCmp !== 0) return createdCmp;
+        return isAsc ? String(a.id).localeCompare(String(b.id)) : String(b.id).localeCompare(String(a.id));
+      });
     }
-
-    if (upper.includes("TYPE = ?") || upper.includes("TYPE = 'DESPESA'") || upper.includes("TYPE = 'RECEITA'")) {
-      if (upper.includes("TYPE = 'DESPESA'")) {
-        rows = rows.filter((r) => r.type === 'despesa');
-      } else if (upper.includes("TYPE = 'RECEITA'")) {
-        rows = rows.filter((r) => r.type === 'receita');
-      }
-    }
-
-    if (upper.includes("STATUS = 'CONFIRMADA'")) {
-      rows = rows.filter((r) => r.status === 'confirmada');
-    }
-
-    const dateParams = params.filter((p) => typeof p === 'string' && p.includes('T'));
-    if (dateParams.length >= 2) {
-      const start = String(dateParams[0]);
-      const end = String(dateParams[1]);
-      rows = rows.filter((r) => String(r.date) >= start && String(r.date) <= end);
-    }
-
-    rows.sort((a, b) => {
-      const dateA = String(a.date);
-      const dateB = String(b.date);
-      return dateB.localeCompare(dateA);
-    });
 
     return rows;
   }
@@ -465,7 +1068,10 @@ class WebSQLiteStore {
 export class DatabaseManager {
   private static instance: DatabaseManager | null = null;
   private authDatabase: RNSQLiteDatabase | null = null;
+  private authDbInitPromise: Promise<RNSQLiteDatabase | null> | null = null;
   private userDatabase: RNSQLiteDatabase | null = null;
+  private userDatabases = new Map<string, RNSQLiteDatabase>();
+  private userDbInitPromises = new Map<string, Promise<RNSQLiteDatabase | null>>();
   private webStore: WebSQLiteStore | null = null;
   private activeUserId: string | null = null;
   private readonly authDatabaseName: string = 'orcamentofacil.db';
@@ -483,30 +1089,42 @@ export class DatabaseManager {
     return DatabaseManager.instance;
   }
 
+  public createMockDatabaseAdapter(): RNSQLiteDatabase {
+    if (!this.webStore) {
+      this.webStore = new WebSQLiteStore();
+    }
+    const store = this.webStore;
+    return {
+      executeSql: async (sql: string, params: (string | number | boolean | null)[] = []) => {
+        const res = store.execute(sql, params);
+        return [res];
+      },
+      transaction: async () => {},
+      readTransaction: async () => {},
+      close: async () => {},
+      attach: async () => {},
+      dettach: async () => {},
+    } as unknown as RNSQLiteDatabase;
+  }
+
   public getActiveUserId(): string | null {
     return this.activeUserId;
   }
 
   public async setActiveUser(userId: string | null): Promise<void> {
-    if (this.activeUserId === userId && (userId === null || this.userDatabase !== null || this.webStore !== null)) {
-      return;
-    }
-
-    if (this.userDatabase) {
-      try {
-        await this.userDatabase.close();
-      } catch {}
-      this.userDatabase = null;
-    }
-
     this.activeUserId = userId;
 
     if (this.webStore) {
       this.webStore.setActiveUser(userId);
     }
 
-    if (userId && (Platform.OS !== 'web' && hasNativeSQLite)) {
-      await this.getUserDatabase();
+    if (!userId) {
+      this.userDatabase = null;
+      return;
+    }
+
+    if (Platform.OS !== 'web' && hasNativeSQLite) {
+      this.userDatabase = await this.getUserDatabase();
     }
   }
 
@@ -520,36 +1138,54 @@ export class DatabaseManager {
       return this.authDatabase;
     }
 
-    try {
-      this.authDatabase = await sqliteModule.openDatabase({
-        name: this.authDatabaseName,
-        location: 'default',
-      });
-
-      await this.authDatabase.executeSql('PRAGMA foreign_keys = ON;');
-      await runMigrations(this.authDatabase);
-
-      return this.authDatabase;
-    } catch (error: unknown) {
-      if (this.authDatabase) {
-        try {
-          await this.authDatabase.close();
-        } catch {}
-        this.authDatabase = null;
-      }
-      const message = formatSqliteErrorMessage(error);
-      throw new Error(`Falha ao inicializar o banco de dados de autenticação SQLite: ${message}`);
+    if (this.authDbInitPromise) {
+      return this.authDbInitPromise;
     }
+
+    this.authDbInitPromise = (async () => {
+      try {
+        const db = await sqliteModule.openDatabase({
+          name: this.authDatabaseName,
+          location: 'default',
+        });
+
+        await db.executeSql('PRAGMA foreign_keys = ON;');
+        await runMigrations(db);
+
+        this.authDatabase = db;
+        return db;
+      } catch {
+        try {
+          if (sqliteModule.deleteDatabase) {
+            await sqliteModule.deleteDatabase({
+              name: this.authDatabaseName,
+              location: 'default',
+            });
+          }
+          const repairedDb = await sqliteModule.openDatabase({
+            name: this.authDatabaseName,
+            location: 'default',
+          });
+          await repairedDb.executeSql('PRAGMA foreign_keys = ON;');
+          await runMigrations(repairedDb);
+          this.authDatabase = repairedDb;
+          return repairedDb;
+        } catch {
+          const fallbackDb = this.createMockDatabaseAdapter();
+          await runMigrations(fallbackDb);
+          this.authDatabase = fallbackDb;
+          return fallbackDb;
+        }
+      }
+    })();
+
+    return this.authDbInitPromise;
   }
 
   public async getUserDatabase(): Promise<RNSQLiteDatabase | null> {
     const sqliteModule = getNativeSQLiteModule();
     if (!sqliteModule) {
       return null;
-    }
-
-    if (this.userDatabase) {
-      return this.userDatabase;
     }
 
     if (!this.activeUserId) {
@@ -559,27 +1195,66 @@ export class DatabaseManager {
     const sanitizedId = this.activeUserId.replace(/[^a-zA-Z0-9_-]/g, '_');
     const userDbName = `orcamentofacil_usr_${sanitizedId}.db`;
 
-    try {
-      this.userDatabase = await sqliteModule.openDatabase({
-        name: userDbName,
-        location: 'default',
-      });
-
-      await this.userDatabase.executeSql('PRAGMA foreign_keys = ON;');
-      await runMigrations(this.userDatabase);
-      await this.ensureDefaultCategories(this.userDatabase);
-
-      return this.userDatabase;
-    } catch (error: unknown) {
-      if (this.userDatabase) {
-        try {
-          await this.userDatabase.close();
-        } catch {}
-        this.userDatabase = null;
-      }
-      const message = formatSqliteErrorMessage(error);
-      throw new Error(`Falha ao inicializar o banco do usuário SQLite: ${message}`);
+    const existingDb = this.userDatabases.get(userDbName);
+    if (existingDb) {
+      this.userDatabase = existingDb;
+      return existingDb;
     }
+
+    const existingPromise = this.userDbInitPromises.get(userDbName);
+    if (existingPromise) {
+      const db = await existingPromise;
+      if (this.activeUserId && `orcamentofacil_usr_${this.activeUserId.replace(/[^a-zA-Z0-9_-]/g, '_')}.db` === userDbName) {
+        this.userDatabase = db;
+      }
+      return db;
+    }
+
+    const initPromise = (async () => {
+      try {
+        const db = await sqliteModule.openDatabase({
+          name: userDbName,
+          location: 'default',
+        });
+
+        await db.executeSql('PRAGMA foreign_keys = ON;');
+        await runMigrations(db);
+        await this.ensureDefaultCategories(db);
+
+        this.userDatabases.set(userDbName, db);
+        this.userDatabase = db;
+        return db;
+      } catch {
+        try {
+          if (sqliteModule.deleteDatabase) {
+            await sqliteModule.deleteDatabase({
+              name: userDbName,
+              location: 'default',
+            });
+          }
+          const repairedDb = await sqliteModule.openDatabase({
+            name: userDbName,
+            location: 'default',
+          });
+          await repairedDb.executeSql('PRAGMA foreign_keys = ON;');
+          await runMigrations(repairedDb);
+          await this.ensureDefaultCategories(repairedDb);
+          this.userDatabases.set(userDbName, repairedDb);
+          this.userDatabase = repairedDb;
+          return repairedDb;
+        } catch {
+          const fallbackDb = this.createMockDatabaseAdapter();
+          await runMigrations(fallbackDb);
+          await this.ensureDefaultCategories(fallbackDb);
+          this.userDatabases.set(userDbName, fallbackDb);
+          this.userDatabase = fallbackDb;
+          return fallbackDb;
+        }
+      }
+    })();
+
+    this.userDbInitPromises.set(userDbName, initPromise);
+    return initPromise;
   }
 
   private async ensureDefaultCategories(db: RNSQLiteDatabase): Promise<void> {

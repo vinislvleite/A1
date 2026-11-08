@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Modal,
   View,
@@ -17,12 +17,15 @@ export interface DeleteTransactionData {
   accountName?: string;
   categoryName?: string;
   date?: string;
+  installment_group_id?: string;
+  installment_number?: number;
+  installment_total?: number;
 }
 
 export interface DeleteTransactionModalProps {
   visible: boolean;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (scope?: 'single' | 'future') => void;
   isLoading?: boolean;
   transaction?: DeleteTransactionData | null;
 }
@@ -51,10 +54,21 @@ export const DeleteTransactionModal: React.FC<DeleteTransactionModalProps> = ({
   isLoading = false,
   transaction,
 }) => {
+  const [scope, setScope] = useState<'single' | 'future'>('single');
+
+  useEffect(() => {
+    if (visible) {
+      setScope('single');
+    }
+  }, [visible, transaction?.id]);
+
   const isExpense = transaction?.type === 'despesa';
   const formattedValue = transaction
     ? `${isExpense ? '- ' : '+ '}${formatCurrency(transaction.value)}`
     : '';
+  const hasInstallmentGroup = Boolean(
+    transaction?.installment_group_id && transaction?.installment_number
+  );
 
   return (
     <Modal
@@ -91,6 +105,15 @@ export const DeleteTransactionModal: React.FC<DeleteTransactionModalProps> = ({
               </View>
 
               <View style={styles.metaRow}>
+                {transaction.installment_number && transaction.installment_total ? (
+                  <View style={styles.tagBadge}>
+                    <Feather name="layers" size={12} color="#60A5FA" />
+                    <Text style={styles.tagText}>
+                      Parcela {transaction.installment_number}/{transaction.installment_total}
+                    </Text>
+                  </View>
+                ) : null}
+
                 {transaction.categoryName ? (
                   <View style={styles.tagBadge}>
                     <Feather name="tag" size={12} color="#94A3B8" />
@@ -115,6 +138,49 @@ export const DeleteTransactionModal: React.FC<DeleteTransactionModalProps> = ({
             </View>
           ) : null}
 
+          {hasInstallmentGroup ? (
+            <View style={styles.scopeBox}>
+              <Text style={styles.scopeLabel}>Opções de exclusão do parcelamento:</Text>
+              <View style={styles.scopeButtonsRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.scopeOptionBtn,
+                    scope === 'single' ? styles.scopeOptionBtnActive : null,
+                  ]}
+                  onPress={() => setScope('single')}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      styles.scopeOptionText,
+                      scope === 'single' ? styles.scopeOptionTextActive : null,
+                    ]}
+                  >
+                    Apenas esta parcela
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.scopeOptionBtn,
+                    scope === 'future' ? styles.scopeOptionBtnActive : null,
+                  ]}
+                  onPress={() => setScope('future')}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      styles.scopeOptionText,
+                      scope === 'future' ? styles.scopeOptionTextActive : null,
+                    ]}
+                  >
+                    Esta e as futuras
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : null}
+
           <View style={styles.warningBox}>
             <Feather name="alert-triangle" size={14} color="#F59E0B" />
             <Text style={styles.warningText}>
@@ -135,7 +201,7 @@ export const DeleteTransactionModal: React.FC<DeleteTransactionModalProps> = ({
 
             <TouchableOpacity
               style={styles.deleteButton}
-              onPress={onConfirm}
+              onPress={() => onConfirm(scope)}
               disabled={isLoading}
               activeOpacity={0.8}
               testID="confirm-delete-button"
@@ -248,6 +314,42 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#CBD5E1',
     fontWeight: '500',
+  },
+  scopeBox: {
+    width: '100%',
+    marginBottom: 14,
+  },
+  scopeLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94A3B8',
+    marginBottom: 8,
+  },
+  scopeButtonsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  scopeOptionBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+  },
+  scopeOptionBtnActive: {
+    borderColor: '#2563EB',
+    backgroundColor: 'rgba(37, 99, 235, 0.18)',
+  },
+  scopeOptionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94A3B8',
+  },
+  scopeOptionTextActive: {
+    color: '#60A5FA',
   },
   warningBox: {
     flexDirection: 'row',

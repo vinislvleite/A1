@@ -5,6 +5,9 @@ export interface Account {
   name: string;
   type: AccountType;
   initial_balance: number;
+  credit_limit?: number | null;
+  closing_day?: number | null;
+  due_day?: number | null;
   color: string;
   icon: string;
   created_at: string;
@@ -15,6 +18,9 @@ export interface CreateAccountDTO {
   name: string;
   type: AccountType;
   initial_balance: number;
+  credit_limit?: number | null;
+  closing_day?: number | null;
+  due_day?: number | null;
   color: string;
   icon: string;
 }
@@ -23,6 +29,9 @@ export interface UpdateAccountDTO {
   name?: string;
   type?: AccountType;
   initial_balance?: number;
+  credit_limit?: number | null;
+  closing_day?: number | null;
+  due_day?: number | null;
   color?: string;
   icon?: string;
 }

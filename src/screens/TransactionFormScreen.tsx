@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -21,15 +21,26 @@ import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { router, useFocusEffect } from 'expo-router';
 import * as Sharing from 'expo-sharing';
-import { FinanceButton, FinanceInput } from '@/components/finance-login';
+import { FinanceButton } from '@/components/finance-login';
 import { TransactionRepository } from '../data/repositories/TransactionRepository';
 import { CategoryRepository } from '../data/repositories/CategoryRepository';
 import { AccountRepository } from '../data/repositories/AccountRepository';
 import { BudgetRepository } from '../data/repositories/BudgetRepository';
 import { NotificationService } from '../services/NotificationService';
+import { suggestCategoryFromData } from '../services/CategorySuggestionService';
+import {
+  CreateInstallmentsUseCase,
+  calculateInstallmentSplits,
+} from '../domain/usecases/CreateInstallmentsUseCase';
+import { CheckSpendingLimitsUseCase } from '../domain/usecases/CheckSpendingLimitsUseCase';
 import { Category } from '../domain/entities/Category';
 import { Account } from '../domain/entities/Account';
-import { TransactionType } from '../domain/entities/Transaction';
+import { BudgetEvent } from '../domain/entities/Budget';
+import {
+  Transaction,
+  TransactionType,
+  TRANSACTION_COLOR_PALETTE,
+} from '../domain/entities/Transaction';
 import { SuccessCheckIcon } from '../components/SuccessCheckIcon';
 
 export interface TransactionFormScreenProps {
@@ -45,6 +56,7 @@ interface SavedTransactionSummary {
   accountName: string;
   date: string;
   attachmentUri?: string;
+  installmentSummary?: string;
 }
 
 const getLocalDateString = (d: Date = new Date()): string => {
@@ -71,7 +83,6 @@ const formatBrazilianDateTime = (isoDate: string): string => {
     const d = new Date(isoDate);
     if (isNaN(d.getTime())) return isoDate;
     const day = String(d.getDate()).padStart(2, '0');
-    const monthNames = ['Set', 'Out', 'Nov', 'Dez', 'Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago'];
     const realMonth = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
     const capitalizedMonth = realMonth.charAt(0).toUpperCase() + realMonth.slice(1);
     const year = d.getFullYear();
@@ -108,6 +119,7 @@ const parseCurrencyValue = (formattedText: string): number => {
 export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenProps) {
   const [type, setType] = useState<TransactionType>('despesa');
   const [value, setValue] = useState('');
+  const amountInputRef = useRef<TextInput>(null);
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(() => getLocalDateString());
   const [time, setTime] = useState(() => getLocalTimeString());
@@ -117,6 +129,8 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [recentTransactions, setRecentTransactions] = useState<Transaction[]>([]);
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingData, setIsFetchingData] = useState(true);
 
@@ -129,6 +143,26 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
   const [attachmentUri, setAttachmentUri] = useState<string | null>(null);
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurrenceDay, setRecurrenceDay] = useState<number>(() => new Date().getDate());
+
+  const [isInstallment, setIsInstallment] = useState(false);
+  const [installmentCount, setInstallmentCount] = useState<number>(2);
+  const [installmentValueMode, setInstallmentValueMode] = useState<'total' | 'parcel'>('total');
+  const [existingInstallmentGroupId, setExistingInstallmentGroupId] = useState<string | undefined>(undefined);
+  const [existingInstallmentNumber, setExistingInstallmentNumber] = useState<number | undefined>(undefined);
+  const [existingInstallmentTotal, setExistingInstallmentTotal] = useState<number | undefined>(undefined);
+  const [editInstallmentScope, setEditInstallmentScope] = useState<'single' | 'future'>('single');
+
+  const [isExtraIncome, setIsExtraIncome] = useState(false);
+  const [incomeSource, setIncomeSource] = useState('');
+  const [colorLabel, setColorLabel] = useState<string | undefined>(undefined);
+  const [events, setEvents] = useState<BudgetEvent[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState<string | undefined>(undefined);
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [isPending, setIsPending] = useState(false);
+
+  const [manualCategorySelected, setManualCategorySelected] = useState(false);
+  const [suggestedCategory, setSuggestedCategory] = useState<Category | null>(null);
 
   const [errors, setErrors] = useState<{
     value?: string;
@@ -144,17 +178,24 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
   const accountRepo = new AccountRepository();
   const budgetRepo = new BudgetRepository();
   const notificationService = new NotificationService();
+  const createInstallmentsUseCase = new CreateInstallmentsUseCase(transactionRepo);
 
   useEffect(() => {
     const loadInitialData = async () => {
       try {
         setIsFetchingData(true);
-        const [loadedCategories, loadedAccounts] = await Promise.all([
+        const [loadedCategories, loadedAccounts, recentPage, loadedTags, loadedEvents] = await Promise.all([
           categoryRepo.findAll(),
           accountRepo.findAll(),
+          transactionRepo.findPaginated(1, 150),
+          transactionRepo.getAllTags(),
+          budgetRepo.findAllEvents(),
         ]);
         setCategories(loadedCategories);
         setAccounts(loadedAccounts);
+        setRecentTransactions(recentPage.data);
+        setAvailableTags(loadedTags);
+        setEvents(loadedEvents);
 
         if (loadedCategories.length > 0 && !categoryId) {
           setCategoryId(loadedCategories[0].id);
@@ -185,11 +226,23 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
             } catch {
             }
             setCategoryId(existing.category_id);
+            setManualCategorySelected(true);
             setAccountId(existing.account_id);
             if (existing.notes) setNotes(existing.notes);
             if (existing.attachment_uri) setAttachmentUri(existing.attachment_uri);
             setIsRecurring(Boolean(existing.is_recurring));
             if (existing.recurrence_day) setRecurrenceDay(existing.recurrence_day);
+            if (existing.installment_group_id) {
+              setExistingInstallmentGroupId(existing.installment_group_id);
+              setExistingInstallmentNumber(existing.installment_number);
+              setExistingInstallmentTotal(existing.installment_total);
+            }
+            setIsExtraIncome(Boolean(existing.is_extra_income));
+            if (existing.income_source) setIncomeSource(existing.income_source);
+            setColorLabel(existing.color_label);
+            setSelectedEventId(existing.event_id);
+            setTags(existing.tags ?? []);
+            setIsPending(existing.status === 'pendente');
           }
         }
       } catch (error: unknown) {
@@ -202,6 +255,23 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
 
     loadInitialData();
   }, [id]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const trimmed = description.trim();
+      if (trimmed.length < 2) {
+        setSuggestedCategory(null);
+        return;
+      }
+      const suggestion = suggestCategoryFromData(trimmed, categories, recentTransactions);
+      setSuggestedCategory(suggestion);
+      if (suggestion && !manualCategorySelected && !id) {
+        setCategoryId(suggestion.id);
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [description, categories, recentTransactions, manualCategorySelected, id]);
 
   const loadAccountsList = useCallback(async () => {
     try {
@@ -220,6 +290,55 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
       loadAccountsList();
     }, [loadAccountsList])
   );
+
+  const handleAddTag = (rawTag?: string) => {
+    const candidate = (rawTag ?? tagInput).trim();
+    if (!candidate) return;
+    const exists = tags.some((t) => t.toLowerCase() === candidate.toLowerCase());
+    if (!exists) {
+      setTags((prev) => [...prev, candidate]);
+    }
+    setTagInput('');
+  };
+
+  const handleRemoveTag = (targetTag: string) => {
+    setTags((prev) => prev.filter((t) => t !== targetTag));
+  };
+
+  const matchingTagSuggestions = useMemo(() => {
+    const q = tagInput.trim().toLowerCase();
+    if (!q) return [];
+    return availableTags
+      .filter(
+        (t) =>
+          t.toLowerCase().includes(q) &&
+          !tags.some((selected) => selected.toLowerCase() === t.toLowerCase())
+      )
+      .slice(0, 6);
+  }, [tagInput, availableTags, tags]);
+
+  const installmentPreview = useMemo(() => {
+    if (!isInstallment || type !== 'despesa') return null;
+    const parsed = parseCurrencyValue(value);
+    if (parsed <= 0 || installmentCount < 2) return null;
+    const totalVal =
+      installmentValueMode === 'total'
+        ? parsed
+        : Number((parsed * installmentCount).toFixed(2));
+    try {
+      const splits = calculateInstallmentSplits(totalVal, installmentCount, `${date}T12:00:00.000Z`);
+      const firstVal = splits[0]?.value ?? 0;
+      const lastVal = splits[splits.length - 1]?.value ?? 0;
+      return {
+        totalVal,
+        firstVal,
+        lastVal,
+        hasRemainder: firstVal !== lastVal,
+      };
+    } catch {
+      return null;
+    }
+  }, [isInstallment, type, value, installmentCount, installmentValueMode, date]);
 
   const handlePickFromGallery = async () => {
     setShowImageModal(false);
@@ -295,14 +414,39 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSave = async () => {
+  const executeSave = async (bypassLimitWarning: boolean = false) => {
     if (!validate()) return;
+
+    const parsedValue = parseCurrencyValue(value);
+
+    if (type === 'despesa' && !bypassLimitWarning) {
+      try {
+        const limitsUseCase = new CheckSpendingLimitsUseCase(budgetRepo, transactionRepo, notificationService);
+        const txCheck = await limitsUseCase.checkTransactionLimit(parsedValue);
+        if (txCheck.exceeded && txCheck.maxLimit) {
+          Alert.alert(
+            'Limite por Transação Acima do Definido',
+            `Esta despesa de ${formatCurrencyBRL(parsedValue)} ultrapassa o seu limite configurado por transação de ${formatCurrencyBRL(txCheck.maxLimit)}. Deseja continuar?`,
+            [
+              { text: 'Voltar', style: 'cancel' },
+              {
+                text: 'Continuar',
+                onPress: () => {
+                  executeSave(true);
+                },
+              },
+            ]
+          );
+          return;
+        }
+      } catch {
+      }
+    }
 
     setIsLoading(true);
     setErrors({});
 
     try {
-      const parsedValue = parseCurrencyValue(value);
 
       const now = new Date();
       let hour = now.getHours();
@@ -321,9 +465,17 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
       const day = parseInt(dayStr, 10);
       const localDate = new Date(year, month, day, hour, minute, 0);
       const formattedDate = localDate.toISOString();
+      const targetStatus = isPending ? 'pendente' : 'confirmada';
+
+      const finalTags = tagInput.trim()
+        ? Array.from(new Set([...tags, tagInput.trim()]))
+        : tags;
+
+      let summaryValue = parsedValue;
+      let installmentSummaryText: string | undefined;
 
       if (id) {
-        await transactionRepo.update(id, {
+        const updatePayload = {
           account_id: accountId,
           category_id: categoryId,
           value: parsedValue,
@@ -332,9 +484,45 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
           date: formattedDate,
           is_recurring: isRecurring,
           recurrence_day: isRecurring ? recurrenceDay : undefined,
+          is_extra_income: type === 'receita' ? isExtraIncome : false,
+          income_source: type === 'receita' && isExtraIncome ? incomeSource.trim() || undefined : undefined,
+          color_label: colorLabel,
+          event_id: type === 'despesa' ? selectedEventId : undefined,
+          tags: finalTags,
           notes: notes.trim() || undefined,
           attachment_uri: attachmentUri || undefined,
+          status: targetStatus as 'confirmada' | 'pendente',
+        };
+
+        if (existingInstallmentGroupId) {
+          await transactionRepo.updateInstallmentGroup(id, editInstallmentScope, updatePayload);
+        } else {
+          await transactionRepo.update(id, updatePayload);
+        }
+      } else if (type === 'despesa' && isInstallment) {
+        const totalInstallmentAmount =
+          installmentValueMode === 'total'
+            ? parsedValue
+            : Number((parsedValue * installmentCount).toFixed(2));
+
+        const result = await createInstallmentsUseCase.execute({
+          account_id: accountId,
+          category_id: categoryId,
+          totalValue: totalInstallmentAmount,
+          installmentCount,
+          description: description.trim(),
+          startDate: formattedDate,
+          type: 'despesa',
+          color_label: colorLabel,
+          tags: finalTags,
+          notes: notes.trim() || undefined,
+          attachment_uri: attachmentUri || undefined,
+          status: targetStatus,
         });
+
+        summaryValue = totalInstallmentAmount;
+        const firstInstallment = result.installments[0];
+        installmentSummaryText = `${installmentCount}x de ${formatCurrencyBRL(firstInstallment ? firstInstallment.value : parsedValue)}`;
       } else {
         await transactionRepo.create({
           account_id: accountId,
@@ -345,19 +533,33 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
           date: formattedDate,
           is_recurring: isRecurring,
           recurrence_day: isRecurring ? recurrenceDay : undefined,
+          is_extra_income: type === 'receita' ? isExtraIncome : false,
+          income_source: type === 'receita' && isExtraIncome ? incomeSource.trim() || undefined : undefined,
+          color_label: colorLabel,
+          event_id: type === 'despesa' ? selectedEventId : undefined,
+          tags: finalTags,
           notes: notes.trim() || undefined,
           attachment_uri: attachmentUri || undefined,
-          status: 'confirmada',
+          status: targetStatus,
         });
       }
 
-      if (type === 'despesa') {
+      if (type === 'despesa' && targetStatus === 'confirmada') {
         try {
           const txDate = new Date(formattedDate);
           const txMonth = txDate.getMonth() + 1;
           const txYear = txDate.getFullYear();
 
-          const budget = await budgetRepo.findByCategoryAndPeriod(categoryId, txMonth, txYear, 'mensal');
+          const limitsUseCase = new CheckSpendingLimitsUseCase(
+            budgetRepo,
+            transactionRepo,
+            notificationService
+          );
+          await limitsUseCase.checkDailyLimitAfterExpense(formattedDate);
+
+          const budget = !selectedEventId
+            ? await budgetRepo.findByCategoryAndPeriod(categoryId, txMonth, txYear, 'mensal')
+            : null;
           if (budget && budget.limit_value > 0) {
             const startMonthStr = String(txMonth).padStart(2, '0');
             const startDate = `${txYear}-${startMonthStr}-01T00:00:00.000Z`;
@@ -396,18 +598,23 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
 
       setSavedSummary({
         description: description.trim(),
-        value: parsedValue,
+        value: summaryValue,
         type,
         categoryName: cat ? cat.name : 'Geral',
         accountName: acc ? acc.name : 'Conta',
         date: formattedDate,
         attachmentUri: attachmentUri || undefined,
+        installmentSummary: installmentSummaryText,
       });
     } catch (error: unknown) {
       setIsLoading(false);
       const message = error instanceof Error ? error.message : 'Falha ao salvar transação.';
       setErrors({ general: message });
     }
+  };
+
+  const handleSave = () => {
+    executeSave(false);
   };
 
   const selectedCategory = categories.find((cat) => cat.id === categoryId);
@@ -526,6 +733,13 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
                 </Text>
               </View>
 
+              {savedSummary.installmentSummary ? (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Parcelamento</Text>
+                  <Text style={styles.summaryValue}>{savedSummary.installmentSummary}</Text>
+                </View>
+              ) : null}
+
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Categoria</Text>
                 <Text style={styles.summaryValue}>
@@ -593,6 +807,7 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
               ]}
               onPress={() => {
                 setType('despesa');
+                setIsExtraIncome(false);
                 setErrors((prev) => ({ ...prev, value: undefined }));
               }}
               activeOpacity={0.8}>
@@ -612,6 +827,7 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
               ]}
               onPress={() => {
                 setType('receita');
+                setIsInstallment(false);
                 setErrors((prev) => ({ ...prev, value: undefined }));
               }}
               activeOpacity={0.8}>
@@ -634,8 +850,15 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
 
           <View style={styles.formContainer}>
             <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Valor</Text>
-              <View style={[styles.amountBox, errors.value ? styles.boxError : null]}>
+              <Text style={styles.fieldLabel}>
+                {type === 'despesa' && isInstallment && installmentValueMode === 'parcel'
+                  ? 'Valor de cada parcela'
+                  : 'Valor'}
+              </Text>
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={() => amountInputRef.current?.focus()}
+                style={[styles.amountBox, errors.value ? styles.boxError : null]}>
                 <Text
                   style={[
                     styles.currencyPrefix,
@@ -644,6 +867,7 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
                   R$
                 </Text>
                 <TextInput
+                  ref={amountInputRef}
                   style={styles.amountInput}
                   value={value}
                   onChangeText={(text: string) => {
@@ -656,7 +880,7 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
                   keyboardType="numeric"
                   selectionColor="#60A5FA"
                 />
-              </View>
+              </TouchableOpacity>
               {errors.value ? <Text style={styles.fieldErrorText}>{errors.value}</Text> : null}
             </View>
 
@@ -671,7 +895,7 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
                     setDescription(text);
                     if (errors.description) setErrors((prev) => ({ ...prev, description: undefined }));
                   }}
-                  placeholder="Ex: Mercado semanal"
+                  placeholder="Ex: Mercado semanal, Uber, Freela..."
                   placeholderTextColor="#64748B"
                   selectionColor="#60A5FA"
                   maxLength={100}
@@ -681,6 +905,30 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
               </View>
               {errors.description ? (
                 <Text style={styles.fieldErrorText}>{errors.description}</Text>
+              ) : null}
+
+              {suggestedCategory ? (
+                <TouchableOpacity
+                  testID="category-suggestion-chip"
+                  style={[
+                    styles.suggestionChip,
+                    suggestedCategory.id === categoryId ? styles.suggestionChipActive : null,
+                  ]}
+                  onPress={() => {
+                    setCategoryId(suggestedCategory.id);
+                    setManualCategorySelected(true);
+                  }}
+                  activeOpacity={0.75}>
+                  <Feather name="zap" size={13} color="#60A5FA" />
+                  <Text style={styles.suggestionChipText}>
+                    Categoria sugerida: <Text style={styles.suggestionChipHighlight}>{suggestedCategory.name}</Text>
+                  </Text>
+                  {suggestedCategory.id === categoryId ? (
+                    <Feather name="check" size={13} color="#10B981" />
+                  ) : (
+                    <Text style={styles.suggestionChipApply}>Aplicar</Text>
+                  )}
+                </TouchableOpacity>
               ) : null}
             </View>
 
@@ -756,9 +1004,16 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
                       color={selectedCategory?.color ?? '#FBBF24'}
                     />
                   </View>
-                  <Text style={styles.catName}>
-                    {selectedCategory?.name ?? 'Selecione uma categoria'}
-                  </Text>
+                  <View style={styles.catTextCol}>
+                    <Text style={styles.catName}>
+                      {selectedCategory?.name ?? 'Selecione uma categoria'}
+                    </Text>
+                    {selectedCategory?.description ? (
+                      <Text style={styles.catDescriptionSub} numberOfLines={1}>
+                        {selectedCategory.description}
+                      </Text>
+                    ) : null}
+                  </View>
                 </View>
                 <Feather name="chevron-down" size={16} color="#94A3B8" />
               </TouchableOpacity>
@@ -767,6 +1022,79 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
               ) : null}
             </View>
 
+            {type === 'receita' ? (
+              <View style={styles.fieldGroup}>
+                <View style={styles.switchRowContainer}>
+                  <View style={styles.switchLabelContainer}>
+                    <View style={styles.switchIconBox}>
+                      <Feather name="trending-up" size={16} color="#10B981" />
+                    </View>
+                    <View style={styles.switchTextCol}>
+                      <Text style={styles.switchTitle}>Renda extra</Text>
+                      <Text style={styles.switchSubtitle}>
+                        Freela, comissão, venda ou ganho esporádico
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    testID="extra-income-switch"
+                    value={isExtraIncome}
+                    onValueChange={setIsExtraIncome}
+                    trackColor={{ false: '#334155', true: '#10B981' }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+
+                {isExtraIncome ? (
+                  <View style={[styles.inputBox, styles.subFieldBox]}>
+                    <Feather name="briefcase" size={16} color="#10B981" />
+                    <TextInput
+                      style={styles.textInput}
+                      value={incomeSource}
+                      onChangeText={setIncomeSource}
+                      placeholder="Origem da renda (ex: Freela design, Venda)"
+                      placeholderTextColor="#64748B"
+                      maxLength={80}
+                      selectionColor="#10B981"
+                    />
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
+            {type === 'despesa' && events.length > 0 ? (
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Vincular a Evento (opcional)</Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.tagSuggestionsRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.tagSuggestionChip,
+                      !selectedEventId ? { borderColor: '#60A5FA', backgroundColor: 'rgba(37, 99, 235, 0.2)' } : null,
+                    ]}
+                    onPress={() => setSelectedEventId(undefined)}>
+                    <Text style={styles.tagSuggestionText}>Nenhum (Orçamento Geral)</Text>
+                  </TouchableOpacity>
+                  {events.map((ev) => {
+                    const active = selectedEventId === ev.id;
+                    return (
+                      <TouchableOpacity
+                        key={ev.id}
+                        style={[
+                          styles.tagSuggestionChip,
+                          active ? { borderColor: '#60A5FA', backgroundColor: 'rgba(37, 99, 235, 0.25)' } : null,
+                        ]}
+                        onPress={() => setSelectedEventId(ev.id)}>
+                        <Text style={styles.tagSuggestionText}>{ev.name}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ) : null}
+
             <View style={styles.fieldGroup}>
               <View style={styles.switchRowContainer}>
                 <View style={styles.switchLabelContainer}>
@@ -774,14 +1102,19 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
                     <Feather name="repeat" size={16} color="#60A5FA" />
                   </View>
                   <View style={styles.switchTextCol}>
-                    <Text style={styles.switchTitle}>Gasto fixo mensal</Text>
-                    <Text style={styles.switchSubtitle}>Repetir todo mês (ex: internet, streaming)</Text>
+                    <Text style={styles.switchTitle}>Transação recorrente mensal</Text>
+                    <Text style={styles.switchSubtitle}>
+                      Gera automaticamente todo mês no dia escolhido
+                    </Text>
                   </View>
                 </View>
                 <Switch
                   testID="recurring-switch"
                   value={isRecurring}
-                  onValueChange={setIsRecurring}
+                  onValueChange={(val) => {
+                    setIsRecurring(val);
+                    if (val) setIsInstallment(false);
+                  }}
                   trackColor={{ false: '#334155', true: '#2563EB' }}
                   thumbColor="#FFFFFF"
                 />
@@ -789,7 +1122,7 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
 
               {isRecurring ? (
                 <View style={styles.recurrenceDayRow}>
-                  <Text style={styles.recurrenceDayLabel}>Dia de vencimento no mês:</Text>
+                  <Text style={styles.recurrenceDayLabel}>Dia do mês (1 a 31):</Text>
                   <View style={styles.recurrenceCounter}>
                     <TouchableOpacity
                       style={styles.recurrenceCounterBtn}
@@ -809,9 +1142,253 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
               ) : null}
             </View>
 
+            {type === 'despesa' && !id ? (
+              <View style={styles.fieldGroup}>
+                <View style={styles.switchRowContainer}>
+                  <View style={styles.switchLabelContainer}>
+                    <View style={styles.switchIconBox}>
+                      <Feather name="layers" size={16} color="#60A5FA" />
+                    </View>
+                    <View style={styles.switchTextCol}>
+                      <Text style={styles.switchTitle}>Parcelar despesa</Text>
+                      <Text style={styles.switchSubtitle}>
+                        Divide em 2 a 48 parcelas mensais consecutivas
+                      </Text>
+                    </View>
+                  </View>
+                  <Switch
+                    testID="installment-switch"
+                    value={isInstallment}
+                    onValueChange={(val) => {
+                      setIsInstallment(val);
+                      if (val) setIsRecurring(false);
+                    }}
+                    trackColor={{ false: '#334155', true: '#2563EB' }}
+                    thumbColor="#FFFFFF"
+                  />
+                </View>
+
+                {isInstallment ? (
+                  <View style={styles.installmentConfigBox}>
+                    <View style={styles.installmentModeRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.installmentModeBtn,
+                          installmentValueMode === 'total' ? styles.installmentModeBtnActive : null,
+                        ]}
+                        onPress={() => setInstallmentValueMode('total')}
+                        activeOpacity={0.75}>
+                        <Text
+                          style={[
+                            styles.installmentModeText,
+                            installmentValueMode === 'total' ? styles.installmentModeTextActive : null,
+                          ]}>
+                          Informar Valor Total
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.installmentModeBtn,
+                          installmentValueMode === 'parcel' ? styles.installmentModeBtnActive : null,
+                        ]}
+                        onPress={() => setInstallmentValueMode('parcel')}
+                        activeOpacity={0.75}>
+                        <Text
+                          style={[
+                            styles.installmentModeText,
+                            installmentValueMode === 'parcel' ? styles.installmentModeTextActive : null,
+                          ]}>
+                          Informar Valor da Parcela
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.installmentCounterRow}>
+                      <Text style={styles.recurrenceDayLabel}>Número de parcelas (2 a 48):</Text>
+                      <View style={styles.recurrenceCounter}>
+                        <TouchableOpacity
+                          style={styles.recurrenceCounterBtn}
+                          onPress={() => setInstallmentCount((prev) => Math.max(2, prev - 1))}
+                          activeOpacity={0.7}>
+                          <Feather name="minus" size={14} color="#FFFFFF" />
+                        </TouchableOpacity>
+                        <Text style={styles.recurrenceCounterValue}>{installmentCount}x</Text>
+                        <TouchableOpacity
+                          style={styles.recurrenceCounterBtn}
+                          onPress={() => setInstallmentCount((prev) => Math.min(48, prev + 1))}
+                          activeOpacity={0.7}>
+                          <Feather name="plus" size={14} color="#FFFFFF" />
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    {installmentPreview ? (
+                      <View style={styles.installmentPreviewCard}>
+                        <Feather name="info" size={14} color="#60A5FA" />
+                        <Text style={styles.installmentPreviewText}>
+                          {installmentCount}x de {formatCurrencyBRL(installmentPreview.firstVal)}
+                          {installmentPreview.hasRemainder
+                            ? ` (última de ${formatCurrencyBRL(installmentPreview.lastVal)})`
+                            : ''}{' '}
+                          • Total: {formatCurrencyBRL(installmentPreview.totalVal)}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
+            {id && existingInstallmentGroupId ? (
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>
+                  Escopo da edição (Parcela {existingInstallmentNumber}/{existingInstallmentTotal})
+                </Text>
+                <View style={styles.installmentModeRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.installmentModeBtn,
+                      editInstallmentScope === 'single' ? styles.installmentModeBtnActive : null,
+                    ]}
+                    onPress={() => setEditInstallmentScope('single')}
+                    activeOpacity={0.75}>
+                    <Text
+                      style={[
+                        styles.installmentModeText,
+                        editInstallmentScope === 'single' ? styles.installmentModeTextActive : null,
+                      ]}>
+                      Apenas esta parcela
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.installmentModeBtn,
+                      editInstallmentScope === 'future' ? styles.installmentModeBtnActive : null,
+                    ]}
+                    onPress={() => setEditInstallmentScope('future')}
+                    activeOpacity={0.75}>
+                    <Text
+                      style={[
+                        styles.installmentModeText,
+                        editInstallmentScope === 'future' ? styles.installmentModeTextActive : null,
+                      ]}>
+                      Esta e as futuras
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : null}
+
+            <View style={styles.fieldGroup}>
+              <View style={styles.switchRowContainer}>
+                <View style={styles.switchLabelContainer}>
+                  <View style={styles.switchIconBox}>
+                    <Feather name="clock" size={16} color="#F59E0B" />
+                  </View>
+                  <View style={styles.switchTextCol}>
+                    <Text style={styles.switchTitle}>Marcar como pendente</Text>
+                    <Text style={styles.switchSubtitle}>
+                      Não afeta o saldo nem orçamentos até ser confirmada
+                    </Text>
+                  </View>
+                </View>
+                <Switch
+                  testID="pending-switch"
+                  value={isPending}
+                  onValueChange={setIsPending}
+                  trackColor={{ false: '#334155', true: '#F59E0B' }}
+                  thumbColor="#FFFFFF"
+                />
+              </View>
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>Rótulo colorido (opcional)</Text>
+              <View style={styles.colorPaletteRow}>
+                {TRANSACTION_COLOR_PALETTE.map((hex) => {
+                  const isSelected = colorLabel === hex;
+                  return (
+                    <TouchableOpacity
+                      key={hex}
+                      testID={`color-label-${hex}`}
+                      style={[
+                        styles.colorSwatch,
+                        { backgroundColor: hex },
+                        isSelected ? styles.colorSwatchActive : null,
+                      ]}
+                      onPress={() => setColorLabel(isSelected ? undefined : hex)}
+                      activeOpacity={0.8}>
+                      {isSelected ? <Feather name="check" size={14} color="#FFFFFF" /> : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>Tags personalizadas (opcional)</Text>
+              <View style={styles.tagInputRow}>
+                <View style={[styles.inputBox, styles.tagInputBox]}>
+                  <Feather name="hash" size={16} color="#60A5FA" />
+                  <TextInput
+                    testID="tag-text-input"
+                    style={styles.textInput}
+                    value={tagInput}
+                    onChangeText={setTagInput}
+                    onSubmitEditing={() => handleAddTag()}
+                    placeholder="Ex: viagem-sp, reembolso, cliente-x"
+                    placeholderTextColor="#64748B"
+                    maxLength={40}
+                    returnKeyType="done"
+                    selectionColor="#60A5FA"
+                  />
+                </View>
+                <TouchableOpacity
+                  testID="btn-add-tag"
+                  style={styles.btnAddTag}
+                  onPress={() => handleAddTag()}
+                  activeOpacity={0.8}>
+                  <Feather name="plus" size={18} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+
+              {matchingTagSuggestions.length > 0 ? (
+                <View style={styles.tagSuggestionsRow}>
+                  {matchingTagSuggestions.map((sug) => (
+                    <TouchableOpacity
+                      key={sug}
+                      style={styles.tagSuggestionChip}
+                      onPress={() => handleAddTag(sug)}
+                      activeOpacity={0.75}>
+                      <Feather name="plus-circle" size={12} color="#60A5FA" />
+                      <Text style={styles.tagSuggestionText}>{sug}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
+
+              {tags.length > 0 ? (
+                <View style={styles.tagsChipsContainer}>
+                  {tags.map((t) => (
+                    <View key={t} style={styles.tagChipItem}>
+                      <Text style={styles.tagChipText}>#{t}</Text>
+                      <TouchableOpacity
+                        onPress={() => handleRemoveTag(t)}
+                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                        <Feather name="x" size={13} color="#94A3B8" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </View>
+
             <View style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>Observações (opcional)</Text>
               <View style={styles.textAreaBox}>
+                <Feather name="file-text" size={16} color="#60A5FA" style={{ marginTop: 2 }} />
                 <TextInput
                   style={styles.textAreaInput}
                   value={notes}
@@ -917,12 +1494,26 @@ export function TransactionFormScreen({ id, onSuccess }: TransactionFormScreenPr
                     ]}
                     onPress={() => {
                       setCategoryId(item.id);
+                      setManualCategorySelected(true);
                       if (errors.categoryId) setErrors((prev) => ({ ...prev, categoryId: undefined }));
                       setShowCategoryModal(false);
                     }}>
                     <View style={styles.modalOptionContent}>
-                      <View style={[styles.categoryBullet, { backgroundColor: item.color || '#2563EB' }]} />
-                      <Text style={[styles.modalOptionText, { color: textColor }]}>{item.name}</Text>
+                      <View style={[styles.modalCategoryIconChip, { backgroundColor: `${item.color || '#2563EB'}25` }]}>
+                        <Feather
+                          name={(item.icon as keyof typeof Feather.glyphMap) || 'tag'}
+                          size={18}
+                          color={item.color || '#2563EB'}
+                        />
+                      </View>
+                      <View style={styles.modalOptionTextCol}>
+                        <Text style={[styles.modalOptionText, { color: textColor }]}>{item.name}</Text>
+                        {item.description ? (
+                          <Text style={[styles.modalOptionDesc, { color: mutedTextColor }]} numberOfLines={2}>
+                            {item.description}
+                          </Text>
+                        ) : null}
+                      </View>
                     </View>
                     {item.id === categoryId ? (
                       <Feather name="check" size={18} color="#2563EB" />
@@ -1250,7 +1841,7 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '700',
     color: '#FFFFFF',
-    minWidth: 160,
+    minWidth: 70,
     padding: 0,
   },
   inputBox: {
@@ -1264,14 +1855,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  inputBoxBetween: {
-    justifyContent: 'space-between',
-  },
-  inputBoxLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
+  subFieldBox: {
+    marginTop: 6,
   },
   textInput: {
     flex: 1,
@@ -1288,6 +1873,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
   },
+  suggestionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(37, 99, 235, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(96, 165, 250, 0.4)',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 4,
+    gap: 8,
+  },
+  suggestionChipActive: {
+    borderColor: 'rgba(16, 185, 129, 0.45)',
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+  },
+  suggestionChipText: {
+    fontSize: 12,
+    color: '#CBD5E1',
+    flex: 1,
+  },
+  suggestionChipHighlight: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  suggestionChipApply: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#60A5FA',
+  },
   categoryCard: {
     backgroundColor: '#1E293B',
     borderWidth: 1,
@@ -1303,6 +1918,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    flex: 1,
+  },
+  catTextCol: {
+    flex: 1,
   },
   catIconChip: {
     width: 32,
@@ -1317,6 +1936,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#FFFFFF',
   },
+  catDescriptionSub: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginTop: 2,
+  },
   boxError: {
     borderColor: '#EF4444',
   },
@@ -1325,6 +1949,145 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     marginTop: 2,
+  },
+  installmentConfigBox: {
+    backgroundColor: '#0F172A',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 8,
+    gap: 10,
+  },
+  installmentModeRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  installmentModeBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#334155',
+    backgroundColor: '#1E293B',
+    alignItems: 'center',
+  },
+  installmentModeBtnActive: {
+    borderColor: '#2563EB',
+    backgroundColor: 'rgba(37, 99, 235, 0.2)',
+  },
+  installmentModeText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#94A3B8',
+  },
+  installmentModeTextActive: {
+    color: '#60A5FA',
+  },
+  installmentCounterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  installmentPreviewCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E293B',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  installmentPreviewText: {
+    fontSize: 12,
+    color: '#E2E8F0',
+    fontWeight: '500',
+    flex: 1,
+  },
+  colorPaletteRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  colorSwatch: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  colorSwatchActive: {
+    borderColor: '#FFFFFF',
+    transform: [{ scale: 1.1 }],
+  },
+  tagInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  tagInputBox: {
+    flex: 1,
+  },
+  btnAddTag: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: '#2563EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tagSuggestionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
+  },
+  tagSuggestionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(37, 99, 235, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(96, 165, 250, 0.35)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 4,
+  },
+  tagSuggestionText: {
+    fontSize: 12,
+    color: '#93C5FD',
+    fontWeight: '500',
+  },
+  tagsChipsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 6,
+  },
+  tagChipItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    gap: 6,
+  },
+  tagChipText: {
+    fontSize: 12,
+    color: '#E2E8F0',
+    fontWeight: '600',
   },
   actionsFooter: {
     marginTop: 10,
@@ -1393,15 +2156,31 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    flex: 1,
+    marginRight: 8,
+  },
+  modalOptionTextCol: {
+    flex: 1,
   },
   categoryBullet: {
     width: 12,
     height: 12,
     borderRadius: 6,
   },
+  modalCategoryIconChip: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   modalOptionText: {
     fontSize: 15,
     fontWeight: '500',
+  },
+  modalOptionDesc: {
+    fontSize: 12,
+    marginTop: 2,
   },
   accountIcon: {
     marginRight: 4,
@@ -1640,6 +2419,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 10,
     minHeight: 80,
+    flexDirection: 'row',
+    gap: 10,
   },
   textAreaInput: {
     color: '#FFFFFF',
@@ -1808,5 +2589,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
-
-

@@ -6,25 +6,32 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { AuthService } from '../services/AuthService';
+import { NotificationService } from '../services/NotificationService';
 import { UserRepository } from '../data/repositories/UserRepository';
 import { AccountRepository } from '../data/repositories/AccountRepository';
+import { BudgetRepository } from '../data/repositories/BudgetRepository';
 import { User } from '../domain/entities/User';
 import { LogoutModal } from '../components/LogoutModal';
 
 export function AccountScreen() {
   const [user, setUser] = useState<User | null>(null);
   const [accountsCount, setAccountsCount] = useState(0);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [biometricEnabled, setBiometricEnabled] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
 
   const authService = new AuthService();
+  const notificationService = new NotificationService();
   const userRepository = new UserRepository();
   const accountRepository = new AccountRepository();
+  const budgetRepository = new BudgetRepository();
 
   const loadUserData = useCallback(async () => {
     try {
@@ -35,9 +42,11 @@ export function AccountScreen() {
         return;
       }
 
-      const [fullUser, accounts] = await Promise.all([
+      const [fullUser, accounts, isSoundOn, bioSetting] = await Promise.all([
         userRepository.findById(session.userId),
         accountRepository.findAll(),
+        notificationService.isSoundEnabled(),
+        budgetRepository.getSetting('biometric_enabled'),
       ]);
 
       if (fullUser) {
@@ -54,6 +63,8 @@ export function AccountScreen() {
       }
 
       setAccountsCount(accounts.length);
+      setSoundEnabled(isSoundOn);
+      setBiometricEnabled(bioSetting !== 'false');
     } catch {
     } finally {
       setIsLoading(false);
@@ -65,6 +76,16 @@ export function AccountScreen() {
       loadUserData();
     }, [loadUserData])
   );
+
+  const handleToggleSound = async (value: boolean) => {
+    setSoundEnabled(value);
+    await notificationService.setSoundEnabled(value);
+  };
+
+  const handleToggleBiometric = async (value: boolean) => {
+    setBiometricEnabled(value);
+    await budgetRepository.setSetting('biometric_enabled', value ? 'true' : 'false');
+  };
 
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -81,16 +102,6 @@ export function AccountScreen() {
       router.replace('/login' as unknown as Parameters<typeof router.replace>[0]);
     } catch {
       setIsLoggingOut(false);
-    }
-  };
-
-  const formatDate = (isoString?: string): string => {
-    if (!isoString) return '—';
-    try {
-      const d = new Date(isoString);
-      return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    } catch {
-      return isoString;
     }
   };
 
@@ -161,7 +172,52 @@ export function AccountScreen() {
           </View>
 
           <View style={styles.sectionGroup}>
-            <Text style={styles.sectionTitle}>RESUMO FINANCEIRO</Text>
+            <Text style={styles.sectionTitle}>NOTIFICAÇÕES E SOM</Text>
+            <View style={styles.infoCard}>
+              <View style={styles.infoRow}>
+                <View style={styles.infoIconWrapper}>
+                  <Feather
+                    name={soundEnabled ? 'volume-2' : 'volume-x'}
+                    size={18}
+                    color="#60A5FA"
+                  />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoValue}>Som das Notificações Financeiras</Text>
+                  <Text style={styles.infoLabel}>
+                    {soundEnabled
+                      ? 'Alertas com som ativado'
+                      : 'Modo silencioso ativo (notificações sem som)'}
+                  </Text>
+                </View>
+                <Switch
+                  value={soundEnabled}
+                  onValueChange={handleToggleSound}
+                  trackColor={{ false: '#334155', true: '#2563EB' }}
+                  thumbColor="#FFFFFF"
+                />
+              </View>
+
+              <View style={styles.cardDivider} />
+
+              <TouchableOpacity
+                style={styles.infoRow}
+                activeOpacity={0.7}
+                onPress={() => router.push('/bills' as unknown as Parameters<typeof router.push>[0])}>
+                <View style={styles.infoIconWrapper}>
+                  <Feather name="bell" size={18} color="#F59E0B" />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoValue}>Contas a Pagar e Lembretes</Text>
+                  <Text style={styles.infoLabel}>Gerenciar contas fixas e avisos de vencimento</Text>
+                </View>
+                <Feather name="chevron-right" size={16} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.sectionGroup}>
+            <Text style={styles.sectionTitle}>CONTAS, CATEGORIAS E LIMITES</Text>
 
             <View style={styles.infoCard}>
               <TouchableOpacity
@@ -172,29 +228,16 @@ export function AccountScreen() {
                   <Feather name="credit-card" size={18} color="#10B981" />
                 </View>
                 <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>Contas Bancárias e Carteiras</Text>
-                  <Text style={styles.infoValue}>{accountsCount} {accountsCount === 1 ? 'conta cadastrada' : 'contas cadastradas'}</Text>
+                  <Text style={styles.infoValue}>Contas e Cartões</Text>
+                  <Text style={styles.infoLabel}>
+                    {accountsCount} {accountsCount === 1 ? 'conta cadastrada' : 'contas cadastradas'}
+                  </Text>
                 </View>
                 <Feather name="chevron-right" size={16} color="#64748B" />
               </TouchableOpacity>
 
               <View style={styles.cardDivider} />
 
-              <View style={styles.infoRow}>
-                <View style={styles.infoIconWrapper}>
-                  <Feather name="shield" size={18} color="#10B981" />
-                </View>
-                <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>Armazenamento</Text>
-                  <Text style={styles.infoValue}>Local feito com criptografia SHA-256</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          <View style={styles.sectionGroup}>
-            <Text style={styles.sectionTitle}>GERENCIAMENTO</Text>
-            <View style={styles.infoCard}>
               <TouchableOpacity
                 style={styles.infoRow}
                 activeOpacity={0.7}
@@ -203,8 +246,96 @@ export function AccountScreen() {
                   <Feather name="tag" size={18} color="#F59E0B" />
                 </View>
                 <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>Categorias</Text>
-                  <Text style={styles.infoValue}>Personalizar categorias, cores e ícones</Text>
+                  <Text style={styles.infoValue}>Categorias</Text>
+                  <Text style={styles.infoLabel}>Personalizar categorias, cores e ícones</Text>
+                </View>
+                <Feather name="chevron-right" size={16} color="#64748B" />
+              </TouchableOpacity>
+
+              <View style={styles.cardDivider} />
+
+              <TouchableOpacity
+                style={styles.infoRow}
+                activeOpacity={0.7}
+                onPress={() => router.push('/spending-limits' as unknown as Parameters<typeof router.push>[0])}>
+                <View style={styles.infoIconWrapper}>
+                  <Feather name="sliders" size={18} color="#60A5FA" />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoValue}>Tetos Diários e Limite por Transação</Text>
+                  <Text style={styles.infoLabel}>Configurar limites de alerta de gastos</Text>
+                </View>
+                <Feather name="chevron-right" size={16} color="#64748B" />
+              </TouchableOpacity>
+
+              <View style={styles.cardDivider} />
+
+              <TouchableOpacity
+                style={styles.infoRow}
+                activeOpacity={0.7}
+                onPress={() => router.push('/spending-goals' as unknown as Parameters<typeof router.push>[0])}>
+                <View style={styles.infoIconWrapper}>
+                  <Feather name="target" size={18} color="#60A5FA" />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoValue}>Metas de Gastos por Categoria</Text>
+                  <Text style={styles.infoLabel}>Acompanhar e definir tetos mensais</Text>
+                </View>
+                <Feather name="chevron-right" size={16} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.sectionGroup}>
+            <Text style={styles.sectionTitle}>SEGURANÇA E BIOMETRIA</Text>
+            <View style={styles.infoCard}>
+              <View style={styles.infoRow}>
+                <View style={styles.infoIconWrapper}>
+                  <Feather name="lock" size={18} color="#10B981" />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoValue}>Autenticação por Biometria</Text>
+                  <Text style={styles.infoLabel}>Permitir desbloqueio rápido com digital</Text>
+                </View>
+                <Switch
+                  value={biometricEnabled}
+                  onValueChange={handleToggleBiometric}
+                  trackColor={{ false: '#334155', true: '#10B981' }}
+                  thumbColor="#FFFFFF"
+                />
+              </View>
+
+              <View style={styles.cardDivider} />
+
+              <TouchableOpacity
+                style={styles.infoRow}
+                activeOpacity={0.7}
+                onPress={() => router.push('/forgot-password' as unknown as Parameters<typeof router.push>[0])}>
+                <View style={styles.infoIconWrapper}>
+                  <Feather name="key" size={18} color="#60A5FA" />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoValue}>Redefinir Senha de Acesso</Text>
+                  <Text style={styles.infoLabel}>Alterar senha local com criptografia SHA-256</Text>
+                </View>
+                <Feather name="chevron-right" size={16} color="#64748B" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.sectionGroup}>
+            <Text style={styles.sectionTitle}>BACKUP, DADOS E PRIVACIDADE</Text>
+            <View style={styles.infoCard}>
+              <TouchableOpacity
+                style={styles.infoRow}
+                activeOpacity={0.7}
+                onPress={() => router.push('/backup' as unknown as Parameters<typeof router.push>[0])}>
+                <View style={styles.infoIconWrapper}>
+                  <Feather name="hard-drive" size={18} color="#60A5FA" />
+                </View>
+                <View style={styles.infoContent}>
+                  <Text style={styles.infoValue}>Backup e Restauração</Text>
+                  <Text style={styles.infoLabel}>Exportar e restaurar cópia criptografada</Text>
                 </View>
                 <Feather name="chevron-right" size={16} color="#64748B" />
               </TouchableOpacity>
@@ -219,17 +350,14 @@ export function AccountScreen() {
                   <Feather name="trash-2" size={18} color="#EF4444" />
                 </View>
                 <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>Limpeza de Dados</Text>
-                  <Text style={styles.infoValue}>Excluir transações antigas ou em lote</Text>
+                  <Text style={styles.infoValue}>Limpeza de Dados</Text>
+                  <Text style={styles.infoLabel}>Excluir transações antigas ou em lote</Text>
                 </View>
                 <Feather name="chevron-right" size={16} color="#64748B" />
               </TouchableOpacity>
-            </View>
-          </View>
 
-          <View style={styles.sectionGroup}>
-            <Text style={styles.sectionTitle}>SEGURANÇA E PRIVACIDADE</Text>
-            <View style={styles.infoCard}>
+              <View style={styles.cardDivider} />
+
               <TouchableOpacity
                 style={styles.infoRow}
                 activeOpacity={0.7}
@@ -238,8 +366,8 @@ export function AccountScreen() {
                   <Feather name="shield" size={18} color="#10B981" />
                 </View>
                 <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>Privacidade e Proteção</Text>
-                  <Text style={styles.infoValue}>Armazenamento 100% offline e criptografia</Text>
+                  <Text style={styles.infoValue}>Política de Privacidade</Text>
+                  <Text style={styles.infoLabel}>Armazenamento 100% offline e proteção local</Text>
                 </View>
                 <Feather name="chevron-right" size={16} color="#64748B" />
               </TouchableOpacity>
@@ -252,7 +380,7 @@ export function AccountScreen() {
               onPress={handleLogout}
               activeOpacity={0.8}>
               <Feather name="log-out" size={18} color="#EF4444" />
-              <Text style={styles.btnLogoutText}>Deslogar da Conta</Text>
+              <Text style={styles.btnLogoutText}>Sair da Conta</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -318,17 +446,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#334155',
     borderRadius: 16,
-    paddingVertical: 24,
+    paddingVertical: 20,
     paddingHorizontal: 16,
     alignItems: 'center',
   },
   avatarGradient: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
     shadowColor: '#2563EB',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.35,
@@ -336,15 +464,15 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   profileName: {
-    fontSize: 20,
+    fontSize: 19,
     fontWeight: '700',
     color: '#FFFFFF',
-    marginBottom: 4,
+    marginBottom: 2,
   },
   profileEmail: {
     fontSize: 13,
     color: '#94A3B8',
-    marginBottom: 12,
+    marginBottom: 10,
   },
   activeBadge: {
     flexDirection: 'row',
@@ -406,7 +534,7 @@ const styles = StyleSheet.create({
   infoLabel: {
     fontSize: 11,
     color: '#94A3B8',
-    marginBottom: 2,
+    marginTop: 2,
   },
   infoValue: {
     fontSize: 14,
@@ -418,7 +546,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#334155',
   },
   actionSection: {
-    marginTop: 8,
+    marginTop: 6,
   },
   btnLogout: {
     flexDirection: 'row',

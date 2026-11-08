@@ -29,6 +29,8 @@ import {
 import { Category } from '../domain/entities/Category';
 import { Account } from '../domain/entities/Account';
 import { DeleteTransactionModal } from '../components/DeleteTransactionModal';
+import { formatMoneyValue } from '../components/MoneyText';
+import { usePrivacyMode } from '../context/PrivacyContext';
 
 const PAGE_SIZE = 20;
 
@@ -44,13 +46,19 @@ interface EnrichedTransaction {
   subText: string;
   amount: number;
   type: 'receita' | 'despesa';
+  status: 'confirmada' | 'pendente';
   hasNotes: boolean;
   hasAttachment: boolean;
   isRecurring: boolean;
+  isExtraIncome: boolean;
+  colorLabel?: string;
+  tags: string[];
+  installmentGroupId?: string;
+  installmentNumber?: number;
+  installmentTotal?: number;
 }
 
-const formatCurrency = (value: number): string =>
-  value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const formatCurrency = (value: number): string => formatMoneyValue(value);
 
 const formatCurrencyInput = (rawText: string): string => {
   const cleanDigits = rawText.replace(/\D/g, '').slice(0, 12);
@@ -111,27 +119,30 @@ const formatItemSub = (accountName: string, categoryName: string, isoDate: strin
   return `${accountName} · ${categoryName}`;
 };
 
+const VALID_CATEGORY_ICONS = new Set<string>([
+  'coffee', 'shopping-bag', 'shopping-cart', 'package', 'navigation', 'truck',
+  'map-pin', 'compass', 'send', 'globe', 'home', 'key', 'tool', 'tv', 'wifi',
+  'zap', 'phone', 'smartphone', 'film', 'music', 'camera', 'headphones',
+  'smile', 'feather', 'sun', 'moon', 'star', 'activity', 'heart', 'shield',
+  'umbrella', 'book', 'book-open', 'briefcase', 'award', 'clipboard',
+  'file-text', 'layers', 'dollar-sign', 'credit-card', 'tag', 'gift',
+  'percent', 'trending-up', 'trending-down', 'pie-chart', 'user', 'users',
+  'bell', 'calendar', 'clock', 'grid',
+]);
+
 const mapCategoryIcon = (iconName: string): keyof typeof Feather.glyphMap => {
-  const iconMap: Record<string, keyof typeof Feather.glyphMap> = {
-    coffee: 'coffee',
-    navigation: 'navigation',
-    smile: 'smile',
-    home: 'home',
-    activity: 'activity',
-    book: 'book',
-    'dollar-sign': 'dollar-sign',
-    briefcase: 'briefcase',
-    shopping: 'shopping-bag',
-    'shopping-bag': 'shopping-bag',
-    grid: 'grid',
-    tag: 'tag',
-  };
-  return iconMap[iconName] ?? 'credit-card';
+  if (iconName === 'shopping') return 'shopping-bag';
+  if (VALID_CATEGORY_ICONS.has(iconName)) {
+    return iconName as keyof typeof Feather.glyphMap;
+  }
+  return 'credit-card';
 };
 
 export function TransactionsListScreen() {
+  usePrivacyMode();
   const [items, setItems] = useState<EnrichedTransaction[]>([]);
   const [categoryList, setCategoryList] = useState<Category[]>([]);
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [categoryMap, setCategoryMap] = useState<Map<string, Category>>(new Map());
   const [accountMap, setAccountMap] = useState<Map<string, Account>>(new Map());
 
@@ -139,6 +150,9 @@ export function TransactionsListScreen() {
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
   const [filterType, setFilterType] = useState<'todos' | 'receita' | 'despesa'>('todos');
+  const [filterStatus, setFilterStatus] = useState<'todos' | 'confirmada' | 'pendente'>('todos');
+  const [onlyExtraIncome, setOnlyExtraIncome] = useState(false);
+  const [tagFilterInput, setTagFilterInput] = useState<string>('');
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [minValInput, setMinValInput] = useState('');
   const [maxValInput, setMaxValInput] = useState('');
@@ -163,17 +177,60 @@ export function TransactionsListScreen() {
   useEffect(() => {
     const handler = setTimeout(() => {
       setDebouncedSearch(searchInput);
-    }, 300);
+    }, 250);
     return () => clearTimeout(handler);
   }, [searchInput]);
+
+  const parsedTags = useMemo(() => {
+    return tagFilterInput
+      .split(',')
+      .map((t) => t.trim().replace(/^#/, '').toLowerCase())
+      .filter(Boolean);
+  }, [tagFilterInput]);
+
+  const currentTagQuery = useMemo(() => {
+    const parts = tagFilterInput.split(',');
+    const last = parts[parts.length - 1].trim().replace(/^#/, '').toLowerCase();
+    return last;
+  }, [tagFilterInput]);
+
+  const tagSuggestions = useMemo(() => {
+    if (!currentTagQuery) return [];
+    return availableTags
+      .filter(
+        (t) =>
+          t.toLowerCase().includes(currentTagQuery) &&
+          !parsedTags.includes(t.toLowerCase())
+      )
+      .slice(0, 4);
+  }, [availableTags, currentTagQuery, parsedTags]);
+
+  const handleAddTagSuggestion = (tag: string) => {
+    const parts = tagFilterInput.split(',').map((p) => p.trim());
+    parts[parts.length - 1] = `#${tag}`;
+    const nextVal = parts.filter(Boolean).join(', ') + ', ';
+    setTagFilterInput(nextVal);
+  };
 
   const activeFilters = useMemo((): TransactionFilter => {
     const filter: TransactionFilter = {};
     if (debouncedSearch.trim()) {
-      filter.searchTerm = debouncedSearch.trim();
+      const cleanQ = debouncedSearch.trim().replace(/^#/, '');
+      filter.searchTerm = cleanQ;
     }
     if (filterType !== 'todos') {
       filter.type = filterType;
+    }
+    if (filterStatus !== 'todos') {
+      filter.status = filterStatus;
+    }
+    if (onlyExtraIncome) {
+      filter.isExtraIncome = true;
+    }
+    if (parsedTags.length === 1) {
+      filter.tag = parsedTags[0];
+    } else if (parsedTags.length > 1) {
+      filter.tags = parsedTags;
     }
     if (selectedCategoryIds.length > 0) {
       filter.categoryIds = selectedCategoryIds;
@@ -187,16 +244,36 @@ export function TransactionsListScreen() {
       filter.maxValue = maxVal;
     }
     return filter;
-  }, [debouncedSearch, filterType, selectedCategoryIds, minValInput, maxValInput]);
+  }, [
+    debouncedSearch,
+    filterType,
+    filterStatus,
+    onlyExtraIncome,
+    parsedTags,
+    selectedCategoryIds,
+    minValInput,
+    maxValInput,
+  ]);
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (filterType !== 'todos') count++;
+    if (filterStatus !== 'todos') count++;
+    if (onlyExtraIncome) count++;
+    if (parsedTags.length > 0) count += parsedTags.length;
     if (selectedCategoryIds.length > 0) count += selectedCategoryIds.length;
     if (parseCurrencyValue(minValInput) > 0) count++;
     if (parseCurrencyValue(maxValInput) > 0) count++;
     return count;
-  }, [filterType, selectedCategoryIds, minValInput, maxValInput]);
+  }, [
+    filterType,
+    filterStatus,
+    onlyExtraIncome,
+    parsedTags,
+    selectedCategoryIds,
+    minValInput,
+    maxValInput,
+  ]);
 
   const enrich = useCallback(
     (
@@ -221,9 +298,16 @@ export function TransactionsListScreen() {
         subText: formatItemSub(accountName, categoryName, tx.date),
         amount: tx.value,
         type: tx.type,
+        status: tx.status ?? 'confirmada',
         hasNotes: Boolean(tx.notes && tx.notes.trim()),
         hasAttachment: Boolean(tx.attachment_uri),
         isRecurring: Boolean(tx.is_recurring),
+        isExtraIncome: Boolean(tx.is_extra_income),
+        colorLabel: tx.color_label,
+        tags: tx.tags ?? [],
+        installmentGroupId: tx.installment_group_id,
+        installmentNumber: tx.installment_number,
+        installmentTotal: tx.installment_total,
       };
     },
     []
@@ -233,15 +317,17 @@ export function TransactionsListScreen() {
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const [cats, accts] = await Promise.all([
+      const [cats, accts, tagsList] = await Promise.all([
         categoryRepo.findAll(),
         accountRepo.findAll(),
+        transactionRepo.getAllTags(),
       ]);
 
       const catsMap = new Map(cats.map((c) => [c.id, c]));
       const acctsMap = new Map(accts.map((a) => [a.id, a]));
 
       setCategoryList(cats);
+      setAvailableTags(tagsList);
       setCategoryMap(catsMap);
       setAccountMap(acctsMap);
 
@@ -303,6 +389,17 @@ export function TransactionsListScreen() {
     }
   };
 
+  const handleQuickConfirm = async (itemId: string) => {
+    try {
+      await transactionRepo.confirmTransaction(itemId);
+      setItems((prev) =>
+        prev.map((it) => (it.id === itemId ? { ...it, status: 'confirmada' } : it))
+      );
+    } catch {
+      Alert.alert('Erro', 'Não foi possível confirmar a transação.');
+    }
+  };
+
   const handleToggleSort = (field: TransactionSortField) => {
     if (sortField === field) {
       setSortDirection((prev) => (prev === 'DESC' ? 'ASC' : 'DESC'));
@@ -320,6 +417,9 @@ export function TransactionsListScreen() {
 
   const clearAllFilters = () => {
     setFilterType('todos');
+    setFilterStatus('todos');
+    setOnlyExtraIncome(false);
+    setTagFilterInput('');
     setSelectedCategoryIds([]);
     setMinValInput('');
     setMaxValInput('');
@@ -329,13 +429,19 @@ export function TransactionsListScreen() {
     setTransactionToDelete(item);
   };
 
-  const handleConfirmDelete = async () => {
+  const handleConfirmDelete = async (scope?: 'single' | 'future') => {
     if (!transactionToDelete) return;
     try {
       setIsDeleting(true);
-      await transactionRepo.delete(transactionToDelete.id);
-      setItems((prev) => prev.filter((t) => t.id !== transactionToDelete.id));
-      setTransactionToDelete(null);
+      if (transactionToDelete.installmentGroupId) {
+        await transactionRepo.deleteInstallmentGroup(transactionToDelete.id, scope ?? 'single');
+        setTransactionToDelete(null);
+        await loadFirstPage();
+      } else {
+        await transactionRepo.delete(transactionToDelete.id);
+        setItems((prev) => prev.filter((t) => t.id !== transactionToDelete.id));
+        setTransactionToDelete(null);
+      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Erro ao excluir transação.';
       Alert.alert('Erro', message);
@@ -351,6 +457,7 @@ export function TransactionsListScreen() {
 
   const renderItem = ({ item, index }: ListRenderItemInfo<EnrichedTransaction>) => {
     const isIncome = item.type === 'receita';
+    const isPending = item.status === 'pendente';
     const prevItem = index > 0 ? items[index - 1] : null;
     const showHeader = !prevItem || prevItem.dateGroup !== item.dateGroup;
 
@@ -361,7 +468,13 @@ export function TransactionsListScreen() {
         ) : null}
 
         <TouchableOpacity
-          style={styles.transactionCard}
+          style={[
+            styles.transactionCard,
+            item.colorLabel
+              ? { borderLeftWidth: 4, borderLeftColor: item.colorLabel }
+              : null,
+            isPending ? styles.transactionCardPending : null,
+          ]}
           activeOpacity={0.7}
           onPress={() =>
             router.push({
@@ -370,15 +483,24 @@ export function TransactionsListScreen() {
             } as unknown as Parameters<typeof router.push>[0])
           }>
           <View style={styles.itemLeft}>
-            <View style={styles.itemIcon}>
+            <View
+              style={[
+                styles.itemIcon,
+                { backgroundColor: `${item.categoryColor}22` },
+              ]}>
               <Feather
                 name={item.categoryIcon as keyof typeof Feather.glyphMap}
                 size={18}
-                color={isIncome ? '#4ADE80' : '#60A5FA'}
+                color={item.categoryColor}
               />
             </View>
             <View style={styles.itemInfo}>
               <View style={styles.itemTitleRow}>
+                {item.colorLabel ? (
+                  <View
+                    style={[styles.colorLabelIndicator, { backgroundColor: item.colorLabel }]}
+                  />
+                ) : null}
                 <Text style={styles.itemDesc} numberOfLines={1}>
                   {item.description}
                 </Text>
@@ -387,7 +509,25 @@ export function TransactionsListScreen() {
                     <Text style={styles.recurringBadgeText}>Fixo</Text>
                   </View>
                 ) : null}
+                {item.installmentNumber && item.installmentTotal ? (
+                  <View style={styles.installmentBadge}>
+                    <Text style={styles.installmentBadgeText}>
+                      {item.installmentNumber}/{item.installmentTotal}
+                    </Text>
+                  </View>
+                ) : null}
+                {item.isExtraIncome ? (
+                  <View style={styles.extraIncomeBadge}>
+                    <Text style={styles.extraIncomeBadgeText}>Extra</Text>
+                  </View>
+                ) : null}
+                {isPending ? (
+                  <View style={styles.pendingBadge}>
+                    <Text style={styles.pendingBadgeText}>Pendente</Text>
+                  </View>
+                ) : null}
               </View>
+
               <View style={styles.itemSubRow}>
                 <Text style={styles.itemSub} numberOfLines={1}>
                   {item.subText}
@@ -399,6 +539,19 @@ export function TransactionsListScreen() {
                   <Feather name="file-text" size={12} color="#94A3B8" style={styles.subIcon} />
                 ) : null}
               </View>
+
+              {item.tags.length > 0 ? (
+                <View style={styles.itemTagsRow}>
+                  {item.tags.slice(0, 3).map((tag) => (
+                    <View key={tag} style={styles.itemTagPill}>
+                      <Text style={styles.itemTagPillText}>#{tag}</Text>
+                    </View>
+                  ))}
+                  {item.tags.length > 3 ? (
+                    <Text style={styles.itemTagMoreText}>+{item.tags.length - 3}</Text>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
           </View>
 
@@ -407,6 +560,17 @@ export function TransactionsListScreen() {
               {isIncome ? '+ ' : '- '}
               {formatCurrency(item.amount)}
             </Text>
+
+            {isPending ? (
+              <TouchableOpacity
+                testID={`btn-confirm-tx-${item.id}`}
+                style={styles.btnQuickConfirm}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                onPress={() => handleQuickConfirm(item.id)}>
+                <Feather name="check" size={14} color="#10B981" />
+              </TouchableOpacity>
+            ) : null}
+
             <TouchableOpacity
               style={styles.btnDelete}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -471,7 +635,7 @@ export function TransactionsListScreen() {
           <Feather name="search" size={16} color="#64748B" />
           <TextInput
             style={styles.searchInput}
-            placeholder="Buscar por descrição ou notas..."
+            placeholder="Buscar por descrição, notas ou #tag..."
             placeholderTextColor="#64748B"
             value={searchInput}
             onChangeText={setSearchInput}
@@ -505,8 +669,6 @@ export function TransactionsListScreen() {
       </View>
 
       <View style={styles.sortBar}>
-        <Text style={styles.sortLabel}>Ordenar por:</Text>
-
         <TouchableOpacity
           style={[styles.sortChip, sortField === 'date' ? styles.sortChipActive : null]}
           onPress={() => handleToggleSort('date')}
@@ -517,7 +679,7 @@ export function TransactionsListScreen() {
           {sortField === 'date' ? (
             <Feather
               name={sortDirection === 'DESC' ? 'arrow-down' : 'arrow-up'}
-              size={12}
+              size={13}
               color="#FFFFFF"
             />
           ) : null}
@@ -533,7 +695,7 @@ export function TransactionsListScreen() {
           {sortField === 'value' ? (
             <Feather
               name={sortDirection === 'DESC' ? 'arrow-down' : 'arrow-up'}
-              size={12}
+              size={13}
               color="#FFFFFF"
             />
           ) : null}
@@ -549,7 +711,7 @@ export function TransactionsListScreen() {
           {sortField === 'category' ? (
             <Feather
               name={sortDirection === 'DESC' ? 'arrow-down' : 'arrow-up'}
-              size={12}
+              size={13}
               color="#FFFFFF"
             />
           ) : null}
@@ -628,6 +790,94 @@ export function TransactionsListScreen() {
                     </Text>
                   </TouchableOpacity>
                 </View>
+              </View>
+
+              <View style={styles.filterGroup}>
+                <Text style={styles.filterGroupLabel}>Status</Text>
+                <View style={styles.filterTypeRow}>
+                  <TouchableOpacity
+                    style={[styles.typeFilterBtn, filterStatus === 'todos' ? styles.typeFilterActive : null]}
+                    onPress={() => setFilterStatus('todos')}>
+                    <Text style={[styles.typeFilterText, filterStatus === 'todos' ? styles.typeFilterTextActive : null]}>
+                      Todos
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.typeFilterBtn, filterStatus === 'confirmada' ? styles.typeFilterActive : null]}
+                    onPress={() => setFilterStatus('confirmada')}>
+                    <Text style={[styles.typeFilterText, filterStatus === 'confirmada' ? styles.typeFilterTextActive : null]}>
+                      Confirmadas
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.typeFilterBtn, filterStatus === 'pendente' ? styles.typeFilterActive : null]}
+                    onPress={() => setFilterStatus('pendente')}>
+                    <Text style={[styles.typeFilterText, filterStatus === 'pendente' ? styles.typeFilterTextActive : null]}>
+                      Pendentes
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.filterGroup}>
+                <Text style={styles.filterGroupLabel}>Renda Extra</Text>
+                <TouchableOpacity
+                  style={[styles.catChipFilter, onlyExtraIncome ? styles.catChipFilterActive : null]}
+                  onPress={() => setOnlyExtraIncome((prev) => !prev)}
+                  activeOpacity={0.75}>
+                  <Feather
+                    name="trending-up"
+                    size={13}
+                    color={onlyExtraIncome ? '#34D399' : '#94A3B8'}
+                  />
+                  <Text style={[styles.catChipText, onlyExtraIncome ? styles.catChipTextActive : null]}>
+                    Apenas Renda Extra (freela, bicos, vendas)
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.filterGroup}>
+                <Text style={styles.filterGroupLabel}>Tags</Text>
+                <View style={styles.tagFilterInputBox}>
+                  <Feather name="hash" size={15} color="#60A5FA" />
+                  <TextInput
+                    style={styles.tagFilterInput}
+                    value={tagFilterInput}
+                    onChangeText={setTagFilterInput}
+                    placeholder="Ex: #alimentação, #lazer"
+                    placeholderTextColor="#64748B"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    selectionColor="#60A5FA"
+                  />
+                  {tagFilterInput ? (
+                    <TouchableOpacity
+                      onPress={() => setTagFilterInput('')}
+                      style={styles.tagFilterClearBtn}
+                      activeOpacity={0.7}>
+                      <Feather name="x" size={14} color="#94A3B8" />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                {tagSuggestions.length > 0 ? (
+                  <View style={styles.tagSuggestionsRow}>
+                    <Text style={styles.tagSuggestionsLabel}>Sugestões:</Text>
+                    {tagSuggestions.map((st) => (
+                      <TouchableOpacity
+                        key={st}
+                        style={styles.tagSuggestionChip}
+                        onPress={() => handleAddTagSuggestion(st)}
+                        activeOpacity={0.75}>
+                        <Text style={styles.tagSuggestionChipText}>#{st}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : (
+                  <Text style={styles.filterGroupHelper}>
+                    Separe múltiplas tags por vírgula (ex: #alimentação, #lazer)
+                  </Text>
+                )}
               </View>
 
               <View style={styles.filterGroup}>
@@ -720,6 +970,9 @@ export function TransactionsListScreen() {
                 accountName: transactionToDelete.accountName,
                 categoryName: transactionToDelete.categoryName,
                 date: transactionToDelete.date,
+                installment_group_id: transactionToDelete.installmentGroupId,
+                installment_number: transactionToDelete.installmentNumber,
+                installment_total: transactionToDelete.installmentTotal,
               }
             : null
         }
@@ -813,22 +1066,19 @@ const styles = StyleSheet.create({
   sortBar: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     paddingHorizontal: 20,
     gap: 8,
     marginBottom: 12,
   },
-  sortLabel: {
-    fontSize: 12,
-    color: '#94A3B8',
-  },
   sortChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
     backgroundColor: '#1E293B',
     borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
     borderWidth: 1,
     borderColor: '#334155',
   },
@@ -837,9 +1087,9 @@ const styles = StyleSheet.create({
     borderColor: '#3B82F6',
   },
   sortChipText: {
-    fontSize: 11,
+    fontSize: 13,
     color: '#94A3B8',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   sortChipTextActive: {
     color: '#FFFFFF',
@@ -902,6 +1152,10 @@ const styles = StyleSheet.create({
     borderColor: '#334155',
     padding: 14,
   },
+  transactionCardPending: {
+    borderColor: 'rgba(245, 158, 11, 0.45)',
+    backgroundColor: 'rgba(30, 41, 59, 0.85)',
+  },
   itemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -922,7 +1176,13 @@ const styles = StyleSheet.create({
   itemTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    flexWrap: 'wrap',
+    gap: 5,
+  },
+  colorLabelIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   recurringBadge: {
     backgroundColor: 'rgba(37, 99, 235, 0.2)',
@@ -937,6 +1197,45 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '700',
     textTransform: 'uppercase',
+  },
+  installmentBadge: {
+    backgroundColor: 'rgba(139, 92, 246, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(167, 139, 250, 0.4)',
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  installmentBadgeText: {
+    color: '#A78BFA',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  extraIncomeBadge: {
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(52, 211, 153, 0.4)',
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  extraIncomeBadgeText: {
+    color: '#34D399',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  pendingBadge: {
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.45)',
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  pendingBadgeText: {
+    color: '#FBBF24',
+    fontSize: 10,
+    fontWeight: '700',
   },
   itemDesc: {
     fontSize: 14,
@@ -957,10 +1256,35 @@ const styles = StyleSheet.create({
   subIcon: {
     marginLeft: 6,
   },
+  itemTagsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 4,
+  },
+  itemTagPill: {
+    backgroundColor: '#0F172A',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+  },
+  itemTagPillText: {
+    fontSize: 10,
+    color: '#93C5FD',
+    fontWeight: '600',
+  },
+  itemTagMoreText: {
+    fontSize: 10,
+    color: '#64748B',
+    fontWeight: '600',
+  },
   itemRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   itemVal: {
     fontSize: 14,
@@ -971,6 +1295,16 @@ const styles = StyleSheet.create({
   },
   valExpense: {
     color: '#EF4444',
+  },
+  btnQuickConfirm: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: 'rgba(16, 185, 129, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   btnDelete: {
     padding: 4,
@@ -1014,7 +1348,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     borderWidth: 1,
     borderColor: '#334155',
-    maxHeight: '80%',
+    maxHeight: '85%',
     padding: 20,
   },
   filterModalHeader: {
@@ -1103,6 +1437,55 @@ const styles = StyleSheet.create({
   },
   catChipTextActive: {
     color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  tagFilterInputBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F172A',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#334155',
+    paddingHorizontal: 12,
+    height: 42,
+    gap: 8,
+  },
+  tagFilterInput: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 13,
+  },
+  tagFilterClearBtn: {
+    padding: 4,
+  },
+  filterGroupHelper: {
+    fontSize: 11,
+    color: '#64748B',
+    marginTop: 4,
+  },
+  tagSuggestionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
+  },
+  tagSuggestionsLabel: {
+    fontSize: 11,
+    color: '#64748B',
+    marginRight: 2,
+  },
+  tagSuggestionChip: {
+    backgroundColor: '#0F172A',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  tagSuggestionChipText: {
+    fontSize: 11,
+    color: '#60A5FA',
     fontWeight: '600',
   },
   valueInputsRow: {

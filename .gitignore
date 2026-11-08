@@ -32,7 +32,19 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+.env.*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# SQLite temp
+*.db-journal
+*.db-wal
+*.db-shm
 
 # typescript
 *.tsbuildinfo

@@ -7,12 +7,16 @@ export interface AccountBalanceDetail {
   currentBalance: number;
   totalIncome: number;
   totalExpense: number;
+  fixedIncome: number;
+  extraIncome: number;
 }
 
 export interface BalanceSummary {
   totalBalance: number;
   totalIncome: number;
   totalExpense: number;
+  fixedIncome: number;
+  extraIncome: number;
   accounts: AccountBalanceDetail[];
 }
 
@@ -28,39 +32,52 @@ export class CalculateBalanceUseCase {
     this.transactionRepository = transactionRepository;
   }
 
-  public async execute(accountId?: string): Promise<BalanceSummary> {
+  public async execute(accountId?: string, asOfDate?: string): Promise<BalanceSummary> {
     try {
       const allAccounts = accountId
         ? await this.fetchSingleAccountList(accountId)
         : await this.accountRepository.findAll();
 
-      const accountTotals = await this.transactionRepository.getAggregateTotalsPerAccount();
+      const accountTotals = await this.transactionRepository.getAggregateTotalsPerAccount(asOfDate);
 
       const accountDetails: AccountBalanceDetail[] = [];
       let overallTotalIncome = 0;
       let overallTotalExpense = 0;
+      let overallFixedIncome = 0;
+      let overallExtraIncome = 0;
       let overallTotalBalance = 0;
 
       for (const account of allAccounts) {
-        const totals = accountTotals.get(account.id) ?? { income: 0, expense: 0 };
-        const currentBalance = account.initial_balance + totals.income - totals.expense;
+        const totals = accountTotals.get(account.id) ?? {
+          income: 0,
+          expense: 0,
+          fixedIncome: 0,
+          extraIncome: 0,
+        };
+        const currentBalance = Number((account.initial_balance + totals.income - totals.expense).toFixed(2));
 
         accountDetails.push({
           account,
           currentBalance,
           totalIncome: totals.income,
           totalExpense: totals.expense,
+          fixedIncome: totals.fixedIncome,
+          extraIncome: totals.extraIncome,
         });
 
-        overallTotalIncome += totals.income;
-        overallTotalExpense += totals.expense;
-        overallTotalBalance += currentBalance;
+        overallTotalIncome = Number((overallTotalIncome + totals.income).toFixed(2));
+        overallTotalExpense = Number((overallTotalExpense + totals.expense).toFixed(2));
+        overallFixedIncome = Number((overallFixedIncome + totals.fixedIncome).toFixed(2));
+        overallExtraIncome = Number((overallExtraIncome + totals.extraIncome).toFixed(2));
+        overallTotalBalance = Number((overallTotalBalance + currentBalance).toFixed(2));
       }
 
       return {
         totalBalance: overallTotalBalance,
         totalIncome: overallTotalIncome,
         totalExpense: overallTotalExpense,
+        fixedIncome: overallFixedIncome,
+        extraIncome: overallExtraIncome,
         accounts: accountDetails,
       };
     } catch (error: unknown) {
@@ -77,4 +94,3 @@ export class CalculateBalanceUseCase {
     return [account];
   }
 }
-

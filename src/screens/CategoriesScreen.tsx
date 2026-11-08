@@ -10,6 +10,7 @@ import {
   Modal,
   TextInput,
   StatusBar,
+  ScrollView,
   type ListRenderItemInfo,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,54 +20,97 @@ import { CategoryRepository } from '../data/repositories/CategoryRepository';
 import { Category } from '../domain/entities/Category';
 
 const AVAILABLE_COLORS = [
-  '#F59E0B',
-  '#3B82F6',
-  '#EC4899',
   '#EF4444',
-  '#8B5CF6',
-  '#10B981',
+  '#F97316',
+  '#F59E0B',
+  '#EAB308',
+  '#84CC16',
   '#22C55E',
-  '#6366F1',
-  '#6B7280',
+  '#10B981',
+  '#14B8A6',
   '#06B6D4',
+  '#0EA5E9',
+  '#3B82F6',
+  '#2563EB',
+  '#6366F1',
+  '#8B5CF6',
+  '#A855F7',
+  '#D946EF',
+  '#EC4899',
+  '#F43F5E',
+  '#FB7185',
+  '#A3E635',
+  '#38BDF8',
+  '#C084FC',
+  '#94A3B8',
+  '#64748B',
 ];
 
 const AVAILABLE_ICONS: (keyof typeof Feather.glyphMap)[] = [
   'coffee',
-  'navigation',
-  'smile',
-  'activity',
-  'book',
-  'home',
-  'dollar-sign',
-  'briefcase',
   'shopping-bag',
-  'grid',
+  'shopping-cart',
+  'package',
+  'navigation',
+  'truck',
+  'map-pin',
+  'compass',
+  'send',
+  'globe',
+  'home',
+  'key',
+  'tool',
+  'tv',
+  'wifi',
+  'zap',
+  'phone',
+  'smartphone',
+  'film',
+  'music',
+  'camera',
+  'headphones',
+  'smile',
+  'feather',
+  'sun',
+  'moon',
+  'star',
+  'activity',
+  'heart',
+  'shield',
+  'umbrella',
+  'book',
+  'book-open',
+  'briefcase',
+  'award',
+  'clipboard',
+  'file-text',
+  'layers',
+  'dollar-sign',
+  'credit-card',
   'tag',
   'gift',
-  'truck',
-  'film',
+  'percent',
+  'trending-up',
+  'trending-down',
+  'pie-chart',
+  'user',
+  'users',
+  'bell',
+  'calendar',
+  'clock',
+  'grid',
 ];
 
 const mapCategoryIcon = (iconName: string): keyof typeof Feather.glyphMap => {
   const iconMap: Record<string, keyof typeof Feather.glyphMap> = {
-    coffee: 'coffee',
-    navigation: 'navigation',
-    smile: 'smile',
-    home: 'home',
-    activity: 'activity',
-    book: 'book',
-    'dollar-sign': 'dollar-sign',
-    briefcase: 'briefcase',
     shopping: 'shopping-bag',
     'shopping-bag': 'shopping-bag',
-    grid: 'grid',
-    tag: 'tag',
-    gift: 'gift',
-    truck: 'truck',
-    film: 'film',
   };
-  return iconMap[iconName] ?? 'tag';
+  if (iconMap[iconName]) return iconMap[iconName];
+  if (AVAILABLE_ICONS.includes(iconName as keyof typeof Feather.glyphMap)) {
+    return iconName as keyof typeof Feather.glyphMap;
+  }
+  return 'tag';
 };
 
 export function CategoriesScreen() {
@@ -76,6 +120,7 @@ export function CategoriesScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [categoryName, setCategoryName] = useState('');
+  const [categoryDescription, setCategoryDescription] = useState('');
   const [categoryColor, setCategoryColor] = useState(AVAILABLE_COLORS[0]);
   const [categoryIcon, setCategoryIcon] = useState<keyof typeof Feather.glyphMap>(AVAILABLE_ICONS[0]);
   const [isSaving, setIsSaving] = useState(false);
@@ -103,6 +148,7 @@ export function CategoriesScreen() {
   const openCreateModal = () => {
     setEditingCategory(null);
     setCategoryName('');
+    setCategoryDescription('');
     setCategoryColor(AVAILABLE_COLORS[0]);
     setCategoryIcon(AVAILABLE_ICONS[0]);
     setModalVisible(true);
@@ -111,9 +157,17 @@ export function CategoriesScreen() {
   const openEditModal = (cat: Category) => {
     setEditingCategory(cat);
     setCategoryName(cat.name);
+    setCategoryDescription(cat.description ?? '');
     setCategoryColor(cat.color || AVAILABLE_COLORS[0]);
     setCategoryIcon((cat.icon as keyof typeof Feather.glyphMap) || AVAILABLE_ICONS[0]);
     setModalVisible(true);
+  };
+
+  const handleOpenCategoryHistory = (cat: Category) => {
+    router.push({
+      pathname: '/category-history',
+      params: { id: cat.id },
+    } as unknown as Parameters<typeof router.push>[0]);
   };
 
   const handleSave = async () => {
@@ -124,15 +178,18 @@ export function CategoriesScreen() {
 
     setIsSaving(true);
     try {
+      const cleanDesc = categoryDescription.trim().slice(0, 140) || undefined;
       if (editingCategory) {
         await categoryRepo.update(editingCategory.id, {
           name: categoryName.trim(),
+          description: cleanDesc,
           color: categoryColor,
           icon: categoryIcon,
         });
       } else {
         await categoryRepo.create({
           name: categoryName.trim(),
+          description: cleanDesc,
           color: categoryColor,
           icon: categoryIcon,
           is_custom: true,
@@ -188,6 +245,7 @@ export function CategoriesScreen() {
   const renderItem = ({ item }: ListRenderItemInfo<Category>) => (
     <View style={styles.cardWrapper}>
       <TouchableOpacity
+        testID={`category-card-${item.id}`}
         style={styles.categoryCard}
         activeOpacity={0.75}
         onPress={() => openEditModal(item)}>
@@ -202,7 +260,7 @@ export function CategoriesScreen() {
           <View style={styles.catTextGroup}>
             <Text style={styles.catNameText}>{item.name}</Text>
             {item.description ? (
-              <Text style={styles.catDescText} numberOfLines={1}>
+              <Text style={styles.catDescText} numberOfLines={2}>
                 {item.description}
               </Text>
             ) : null}
@@ -210,6 +268,13 @@ export function CategoriesScreen() {
         </View>
 
         <View style={styles.cardActions}>
+          <TouchableOpacity
+            style={styles.actionBtn}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            onPress={() => handleOpenCategoryHistory(item)}>
+            <Feather name="bar-chart-2" size={15} color="#60A5FA" />
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.actionBtn}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -280,69 +345,95 @@ export function CategoriesScreen() {
           onPress={() => setModalVisible(false)}>
           <View style={styles.modalCard} onStartShouldSetResponder={() => true}>
             <Text style={styles.modalTitle}>
-              {editingCategory ? 'Renomear Categoria' : 'Nova Categoria'}
+              {editingCategory ? 'Editar Categoria' : 'Nova Categoria'}
             </Text>
 
-            <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Nome da Categoria</Text>
-              <View style={styles.inputBox}>
-                <Feather name="tag" size={16} color="#60A5FA" />
-                <TextInput
-                  style={styles.textInput}
-                  value={categoryName}
-                  onChangeText={setCategoryName}
-                  placeholder="Ex: Assinaturas, Mercado"
-                  placeholderTextColor="#64748B"
-                  maxLength={30}
-                  autoCapitalize="words"
-                  selectionColor="#60A5FA"
-                  returnKeyType="done"
-                />
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.modalScrollContent}
+              keyboardShouldPersistTaps="handled">
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Nome da Categoria</Text>
+                <View style={styles.inputBox}>
+                  <Feather name="tag" size={16} color="#60A5FA" />
+                  <TextInput
+                    style={styles.textInput}
+                    value={categoryName}
+                    onChangeText={setCategoryName}
+                    placeholder="Ex: Assinaturas, Mercado"
+                    placeholderTextColor="#64748B"
+                    maxLength={30}
+                    autoCapitalize="words"
+                    selectionColor="#60A5FA"
+                    returnKeyType="done"
+                  />
+                </View>
               </View>
-            </View>
 
-            <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Cor</Text>
-              <View style={styles.paletteRow}>
-                {AVAILABLE_COLORS.map((c) => (
-                  <TouchableOpacity
-                    key={c}
-                    style={[
-                      styles.colorChip,
-                      { backgroundColor: c },
-                      categoryColor === c ? styles.colorChipSelected : null,
-                    ]}
-                    onPress={() => setCategoryColor(c)}
-                    activeOpacity={0.8}>
-                    {categoryColor === c ? (
-                      <Feather name="check" size={16} color="#FFFFFF" />
-                    ) : null}
-                  </TouchableOpacity>
-                ))}
+              <View style={styles.fieldGroup}>
+                <View style={styles.fieldLabelRow}>
+                  <Text style={styles.fieldLabel}>Descrição (opcional)</Text>
+                  <Text style={styles.charCountText}>{categoryDescription.length}/140</Text>
+                </View>
+                <View style={[styles.inputBox, styles.descriptionInputBox]}>
+                  <Feather name="align-left" size={16} color="#60A5FA" />
+                  <TextInput
+                    testID="category-description-input"
+                    style={styles.textInput}
+                    value={categoryDescription}
+                    onChangeText={(t) => setCategoryDescription(t.slice(0, 140))}
+                    placeholder="Supermercado, restaurantes"
+                    placeholderTextColor="#64748B"
+                    maxLength={140}
+                    selectionColor="#60A5FA"
+                    returnKeyType="done"
+                  />
+                </View>
               </View>
-            </View>
 
-            <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Ícone</Text>
-              <View style={styles.iconsGrid}>
-                {AVAILABLE_ICONS.map((i) => (
-                  <TouchableOpacity
-                    key={i}
-                    style={[
-                      styles.iconOption,
-                      categoryIcon === i ? styles.iconOptionSelected : null,
-                    ]}
-                    onPress={() => setCategoryIcon(i)}
-                    activeOpacity={0.8}>
-                    <Feather
-                      name={i}
-                      size={20}
-                      color={categoryIcon === i ? '#60A5FA' : '#94A3B8'}
-                    />
-                  </TouchableOpacity>
-                ))}
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Cor</Text>
+                <View style={styles.paletteRow}>
+                  {AVAILABLE_COLORS.map((c) => (
+                    <TouchableOpacity
+                      key={c}
+                      style={[
+                        styles.colorChip,
+                        { backgroundColor: c },
+                        categoryColor === c ? styles.colorChipSelected : null,
+                      ]}
+                      onPress={() => setCategoryColor(c)}
+                      activeOpacity={0.8}>
+                      {categoryColor === c ? (
+                        <Feather name="check" size={16} color="#FFFFFF" />
+                      ) : null}
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </View>
-            </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Ícone</Text>
+                <View style={styles.iconsGrid}>
+                  {AVAILABLE_ICONS.map((i) => (
+                    <TouchableOpacity
+                      key={i}
+                      style={[
+                        styles.iconOption,
+                        categoryIcon === i ? styles.iconOptionSelected : null,
+                      ]}
+                      onPress={() => setCategoryIcon(i)}
+                      activeOpacity={0.8}>
+                      <Feather
+                        name={i}
+                        size={20}
+                        color={categoryIcon === i ? '#60A5FA' : '#94A3B8'}
+                      />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </ScrollView>
 
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -441,6 +532,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     flex: 1,
+    marginRight: 8,
   },
   iconChip: {
     width: 40,
@@ -497,8 +589,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#334155',
     width: '100%',
+    maxHeight: '88%',
     padding: 20,
     gap: 14,
+  },
+  modalScrollContent: {
+    gap: 14,
+    paddingBottom: 4,
   },
   modalTitle: {
     fontSize: 17,
@@ -508,10 +605,19 @@ const styles = StyleSheet.create({
   fieldGroup: {
     gap: 6,
   },
+  fieldLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   fieldLabel: {
     fontSize: 12,
     fontWeight: '500',
     color: '#94A3B8',
+  },
+  charCountText: {
+    fontSize: 11,
+    color: '#64748B',
   },
   inputBox: {
     backgroundColor: '#0F172A',
@@ -524,10 +630,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  descriptionInputBox: {
+    height: 44,
+  },
   textInput: {
     flex: 1,
     color: '#FFFFFF',
     fontSize: 14,
+    paddingVertical: 0,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   paletteRow: {
     flexDirection: 'row',

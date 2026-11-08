@@ -8,6 +8,9 @@ interface AccountRow {
   name: string;
   type: 'corrente' | 'poupanca' | 'cartao_credito';
   initial_balance: number;
+  credit_limit?: number | null;
+  closing_day?: number | null;
+  due_day?: number | null;
   color: string;
   icon: string;
   created_at: string;
@@ -21,15 +24,51 @@ export class AccountRepository {
     this.dbManager = dbManager;
   }
 
+  private mapRowToEntity(row: AccountRow): Account {
+    return {
+      id: row.id,
+      name: row.name,
+      type: row.type,
+      initial_balance: Number(row.initial_balance ?? 0),
+      credit_limit:
+        row.credit_limit !== undefined && row.credit_limit !== null ? Number(row.credit_limit) : 0,
+      closing_day:
+        row.closing_day !== undefined && row.closing_day !== null ? Number(row.closing_day) : null,
+      due_day: row.due_day !== undefined && row.due_day !== null ? Number(row.due_day) : null,
+      color: row.color,
+      icon: row.icon,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    };
+  }
+
   public async create(data: CreateAccountDTO): Promise<Account> {
     const id = generateUUID();
     const now = new Date().toISOString();
+    const creditLimit =
+      data.credit_limit !== undefined && data.credit_limit !== null ? Number(data.credit_limit) : 0;
+    const closingDay =
+      data.closing_day !== undefined && data.closing_day !== null ? Number(data.closing_day) : null;
+    const dueDay =
+      data.due_day !== undefined && data.due_day !== null ? Number(data.due_day) : null;
 
     try {
       await this.dbManager.executeQuery(
-        `INSERT INTO accounts (id, name, type, initial_balance, color, icon, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?);`,
-        [id, data.name, data.type, data.initial_balance, data.color, data.icon, now, now]
+        `INSERT INTO accounts (id, name, type, initial_balance, credit_limit, closing_day, due_day, color, icon, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+        [
+          id,
+          data.name,
+          data.type,
+          data.initial_balance,
+          creditLimit,
+          closingDay,
+          dueDay,
+          data.color,
+          data.icon,
+          now,
+          now,
+        ]
       );
 
       const created = await this.findById(id);
@@ -47,7 +86,7 @@ export class AccountRepository {
   public async findById(id: string): Promise<Account | null> {
     try {
       const result = await this.dbManager.executeQuery(
-        'SELECT id, name, type, initial_balance, color, icon, created_at, updated_at FROM accounts WHERE id = ?;',
+        'SELECT id, name, type, initial_balance, credit_limit, closing_day, due_day, color, icon, created_at, updated_at FROM accounts WHERE id = ?;',
         [id]
       );
 
@@ -56,16 +95,7 @@ export class AccountRepository {
       }
 
       const row = result.rows.item(0) as AccountRow;
-      return {
-        id: row.id,
-        name: row.name,
-        type: row.type,
-        initial_balance: row.initial_balance,
-        color: row.color,
-        icon: row.icon,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-      };
+      return this.mapRowToEntity(row);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       await LogService.getInstance().logCriticalError('ACCOUNT_FIND_BY_ID_FAILED', message);
@@ -76,22 +106,13 @@ export class AccountRepository {
   public async findAll(): Promise<Account[]> {
     try {
       const result = await this.dbManager.executeQuery(
-        'SELECT id, name, type, initial_balance, color, icon, created_at, updated_at FROM accounts ORDER BY name ASC;'
+        'SELECT id, name, type, initial_balance, credit_limit, closing_day, due_day, color, icon, created_at, updated_at FROM accounts ORDER BY name ASC;'
       );
 
       const accounts: Account[] = [];
       for (let i = 0; i < result.rows.length; i++) {
         const row = result.rows.item(i) as AccountRow;
-        accounts.push({
-          id: row.id,
-          name: row.name,
-          type: row.type,
-          initial_balance: row.initial_balance,
-          color: row.color,
-          icon: row.icon,
-          created_at: row.created_at,
-          updated_at: row.updated_at,
-        });
+        accounts.push(this.mapRowToEntity(row));
       }
 
       return accounts;
@@ -111,6 +132,12 @@ export class AccountRepository {
     const name = data.name ?? existing.name;
     const type = data.type ?? existing.type;
     const initialBalance = data.initial_balance ?? existing.initial_balance;
+    const creditLimit =
+      data.credit_limit !== undefined ? data.credit_limit : (existing.credit_limit ?? 0);
+    const closingDay =
+      data.closing_day !== undefined ? data.closing_day : (existing.closing_day ?? null);
+    const dueDay =
+      data.due_day !== undefined ? data.due_day : (existing.due_day ?? null);
     const color = data.color ?? existing.color;
     const icon = data.icon ?? existing.icon;
     const now = new Date().toISOString();
@@ -118,9 +145,9 @@ export class AccountRepository {
     try {
       await this.dbManager.executeQuery(
         `UPDATE accounts
-         SET name = ?, type = ?, initial_balance = ?, color = ?, icon = ?, updated_at = ?
+         SET name = ?, type = ?, initial_balance = ?, credit_limit = ?, closing_day = ?, due_day = ?, color = ?, icon = ?, updated_at = ?
          WHERE id = ?;`,
-        [name, type, initialBalance, color, icon, now, id]
+        [name, type, initialBalance, creditLimit, closingDay, dueDay, color, icon, now, id]
       );
 
       const updated = await this.findById(id);
@@ -150,20 +177,21 @@ export class AccountRepository {
     }
   }
 
-  public async adjustBalance(accountId: string, newBalance: number): Promise<Account> {
+  public async adjustBalance(accountId: string, newBalance: number, asOfDate?: string): Promise<Account> {
     const existing = await this.findById(accountId);
     if (!existing) {
       throw new Error(`Conta não encontrada com ID: ${accountId}`);
     }
 
     try {
+      const cutoffDay = (asOfDate ?? new Date().toISOString()).substring(0, 10);
       const totalsResult = await this.dbManager.executeQuery(
         `SELECT
            SUM(CASE WHEN type = 'receita' AND status = 'confirmada' THEN value ELSE 0 END) AS total_income,
            SUM(CASE WHEN type = 'despesa' AND status = 'confirmada' THEN value ELSE 0 END) AS total_expense
          FROM transactions
-         WHERE account_id = ?;`,
-        [accountId]
+         WHERE account_id = ? AND substr(date, 1, 10) <= ?;`,
+        [accountId, cutoffDay]
       );
 
       let totalIncome = 0;

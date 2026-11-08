@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -103,11 +103,21 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
   const [name, setName] = useState('');
   const [type, setType] = useState<AccountType>('corrente');
   const [initialBalance, setInitialBalance] = useState('');
+  const [creditLimit, setCreditLimit] = useState('');
+  const [closingDay, setClosingDay] = useState('10');
+  const [dueDay, setDueDay] = useState('17');
+  const initialBalanceInputRef = useRef<TextInput>(null);
+  const creditLimitInputRef = useRef<TextInput>(null);
   const [color, setColor] = useState(AVAILABLE_COLORS[0]);
   const [icon, setIcon] = useState<keyof typeof Feather.glyphMap>(AVAILABLE_ICONS[0]);
   const [isLoading, setIsLoading] = useState(false);
   const [isFetching, setIsFetching] = useState(Boolean(id));
-  const [errors, setErrors] = useState<{ name?: string }>({});
+  const [errors, setErrors] = useState<{
+    name?: string;
+    creditLimit?: string;
+    closingDay?: string;
+    dueDay?: string;
+  }>({});
 
   const accountRepo = new AccountRepository();
 
@@ -129,6 +139,20 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
               maximumFractionDigits: 2,
             })
           );
+          if (account.credit_limit && account.credit_limit > 0) {
+            setCreditLimit(
+              account.credit_limit.toLocaleString('pt-BR', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })
+            );
+          }
+          if (account.closing_day) {
+            setClosingDay(String(account.closing_day));
+          }
+          if (account.due_day) {
+            setDueDay(String(account.due_day));
+          }
         }
       } catch {
         Alert.alert('Erro', 'Não foi possível carregar os dados da conta.');
@@ -141,10 +165,30 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
   }, [id]);
 
   const validate = (): boolean => {
-    const newErrors: { name?: string } = {};
+    const newErrors: {
+      name?: string;
+      creditLimit?: string;
+      closingDay?: string;
+      dueDay?: string;
+    } = {};
 
     if (!name.trim()) {
       newErrors.name = 'Informe o nome da conta';
+    }
+
+    if (type === 'cartao_credito') {
+      const parsedLimit = parseCurrencyValue(creditLimit);
+      if (parsedLimit <= 0) {
+        newErrors.creditLimit = 'Informe o limite total do cartão';
+      }
+      const parsedClosing = parseInt(closingDay.replace(/\D/g, ''), 10);
+      if (Number.isNaN(parsedClosing) || parsedClosing < 1 || parsedClosing > 31) {
+        newErrors.closingDay = 'Informe um dia de fechamento entre 1 e 31';
+      }
+      const parsedDue = parseInt(dueDay.replace(/\D/g, ''), 10);
+      if (Number.isNaN(parsedDue) || parsedDue < 1 || parsedDue > 31) {
+        newErrors.dueDay = 'Informe um dia de vencimento entre 1 e 31';
+      }
     }
 
     setErrors(newErrors);
@@ -157,12 +201,20 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
     setIsLoading(true);
     try {
       const parsedBalance = parseCurrencyValue(initialBalance);
+      const parsedLimit = type === 'cartao_credito' ? parseCurrencyValue(creditLimit) : 0;
+      const parsedClosing =
+        type === 'cartao_credito' ? parseInt(closingDay.replace(/\D/g, ''), 10) : null;
+      const parsedDue =
+        type === 'cartao_credito' ? parseInt(dueDay.replace(/\D/g, ''), 10) : null;
 
       if (id) {
         await accountRepo.update(id, {
           name: name.trim(),
           type,
           initial_balance: parsedBalance,
+          credit_limit: parsedLimit,
+          closing_day: parsedClosing,
+          due_day: parsedDue,
           color,
           icon,
         });
@@ -171,6 +223,9 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
           name: name.trim(),
           type,
           initial_balance: parsedBalance,
+          credit_limit: parsedLimit,
+          closing_day: parsedClosing,
+          due_day: parsedDue,
           color,
           icon,
         });
@@ -220,23 +275,28 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled">
-
           <View style={[styles.previewCard, { backgroundColor: color }]}>
             <View style={styles.previewTopRow}>
               <View style={styles.previewIconBox}>
                 <Feather name={icon} size={24} color="#FFFFFF" />
               </View>
               <Text style={styles.previewTypeBadge}>
-                {type === 'corrente' ? 'Conta Corrente' : type === 'poupanca' ? 'Poupança' : 'Cartão de Crédito'}
+                {type === 'corrente'
+                  ? 'Conta Corrente'
+                  : type === 'poupanca'
+                    ? 'Poupança'
+                    : 'Cartão de Crédito'}
               </Text>
             </View>
             <View style={styles.previewBottomCol}>
               <Text style={styles.previewAccountName} numberOfLines={1}>
                 {name.trim() || 'Nome da Conta'}
               </Text>
-              <Text style={styles.previewBalanceLabel}>Saldo Inicial</Text>
+              <Text style={styles.previewBalanceLabel}>
+                {type === 'cartao_credito' ? 'Limite Total' : 'Saldo Inicial'}
+              </Text>
               <Text style={styles.previewBalanceValue}>
-                R$ {initialBalance || '0,00'}
+                R$ {(type === 'cartao_credito' ? creditLimit : initialBalance) || '0,00'}
               </Text>
             </View>
           </View>
@@ -250,7 +310,7 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
                 value={name}
                 onChangeText={(text) => {
                   setName(text);
-                  if (errors.name) setErrors({});
+                  if (errors.name) setErrors((prev) => ({ ...prev, name: undefined }));
                 }}
                 placeholder="Ex: Nubank, Itaú, Carteira"
                 placeholderTextColor="#64748B"
@@ -260,9 +320,7 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
                 returnKeyType="done"
               />
             </View>
-            {errors.name ? (
-              <Text style={styles.errorText}>{errors.name}</Text>
-            ) : null}
+            {errors.name ? <Text style={styles.errorText}>{errors.name}</Text> : null}
           </View>
 
           <View style={styles.fieldGroup}>
@@ -320,9 +378,13 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
 
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>Saldo Inicial</Text>
-            <View style={styles.amountBox}>
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={() => initialBalanceInputRef.current?.focus()}
+              style={styles.amountBox}>
               <Text style={styles.currencyPrefix}>R$</Text>
               <TextInput
+                ref={initialBalanceInputRef}
                 style={styles.amountInput}
                 value={initialBalance}
                 onChangeText={(text) => {
@@ -334,8 +396,92 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
                 keyboardType="numeric"
                 selectionColor="#60A5FA"
               />
-            </View>
+            </TouchableOpacity>
           </View>
+
+          {type === 'cartao_credito' ? (
+            <>
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Limite do Cartão</Text>
+                <TouchableOpacity
+                  activeOpacity={1}
+                  onPress={() => creditLimitInputRef.current?.focus()}
+                  style={[styles.amountBox, errors.creditLimit ? styles.inputBoxError : null]}>
+                  <Text style={styles.currencyPrefix}>R$</Text>
+                  <TextInput
+                    ref={creditLimitInputRef}
+                    style={styles.amountInput}
+                    value={creditLimit}
+                    onChangeText={(text) => {
+                      setCreditLimit(formatCurrencyInput(text));
+                      if (errors.creditLimit) {
+                        setErrors((prev) => ({ ...prev, creditLimit: undefined }));
+                      }
+                    }}
+                    placeholder="0,00"
+                    placeholderTextColor="#64748B"
+                    keyboardType="numeric"
+                    selectionColor="#60A5FA"
+                  />
+                </TouchableOpacity>
+                {errors.creditLimit ? (
+                  <Text style={styles.errorText}>{errors.creditLimit}</Text>
+                ) : null}
+              </View>
+
+              <View style={styles.rowTwoColumns}>
+                <View style={styles.halfFieldGroup}>
+                  <Text style={styles.fieldLabel}>Dia de Fechamento</Text>
+                  <View style={[styles.inputBox, errors.closingDay ? styles.inputBoxError : null]}>
+                    <Feather name="calendar" size={18} color="#60A5FA" />
+                    <TextInput
+                      style={styles.textInput}
+                      value={closingDay}
+                      onChangeText={(text) => {
+                        setClosingDay(text.replace(/\D/g, '').slice(0, 2));
+                        if (errors.closingDay) {
+                          setErrors((prev) => ({ ...prev, closingDay: undefined }));
+                        }
+                      }}
+                      placeholder="Ex: 10"
+                      placeholderTextColor="#64748B"
+                      keyboardType="number-pad"
+                      maxLength={2}
+                      selectionColor="#60A5FA"
+                    />
+                  </View>
+                  {errors.closingDay ? (
+                    <Text style={styles.errorText}>{errors.closingDay}</Text>
+                  ) : null}
+                </View>
+
+                <View style={styles.halfFieldGroup}>
+                  <Text style={styles.fieldLabel}>Dia de Vencimento</Text>
+                  <View style={[styles.inputBox, errors.dueDay ? styles.inputBoxError : null]}>
+                    <Feather name="clock" size={18} color="#F59E0B" />
+                    <TextInput
+                      style={styles.textInput}
+                      value={dueDay}
+                      onChangeText={(text) => {
+                        setDueDay(text.replace(/\D/g, '').slice(0, 2));
+                        if (errors.dueDay) {
+                          setErrors((prev) => ({ ...prev, dueDay: undefined }));
+                        }
+                      }}
+                      placeholder="Ex: 17"
+                      placeholderTextColor="#64748B"
+                      keyboardType="number-pad"
+                      maxLength={2}
+                      selectionColor="#60A5FA"
+                    />
+                  </View>
+                  {errors.dueDay ? (
+                    <Text style={styles.errorText}>{errors.dueDay}</Text>
+                  ) : null}
+                </View>
+              </View>
+            </>
+          ) : null}
 
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>Cor da Conta</Text>
@@ -350,9 +496,7 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
                   ]}
                   onPress={() => setColor(c)}
                   activeOpacity={0.8}>
-                  {color === c ? (
-                    <Feather name="check" size={16} color="#FFFFFF" />
-                  ) : null}
+                  {color === c ? <Feather name="check" size={16} color="#FFFFFF" /> : null}
                 </TouchableOpacity>
               ))}
             </View>
@@ -370,11 +514,7 @@ export function AccountFormScreen({ id, onSuccess }: AccountFormScreenProps) {
                   ]}
                   onPress={() => setIcon(i)}
                   activeOpacity={0.8}>
-                  <Feather
-                    name={i}
-                    size={22}
-                    color={icon === i ? '#60A5FA' : '#94A3B8'}
-                  />
+                  <Feather name={i} size={22} color={icon === i ? '#60A5FA' : '#94A3B8'} />
                 </TouchableOpacity>
               ))}
             </View>
@@ -431,7 +571,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 12,
   },
   navBackBtn: {
@@ -459,6 +599,14 @@ const styles = StyleSheet.create({
     gap: 18,
   },
   fieldGroup: {
+    gap: 8,
+  },
+  rowTwoColumns: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  halfFieldGroup: {
+    flex: 1,
     gap: 8,
   },
   fieldLabel: {
@@ -538,7 +686,7 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '700',
     color: '#FFFFFF',
-    minWidth: 160,
+    minWidth: 70,
     padding: 0,
   },
   paletteRow: {

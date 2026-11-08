@@ -18,25 +18,35 @@ import { router, useFocusEffect } from 'expo-router';
 import { AuthService } from '../services/AuthService';
 import { CalculateBalanceUseCase } from '../domain/usecases/CalculateBalanceUseCase';
 import { CalculateBudgetProgressUseCase } from '../domain/usecases/CalculateBudgetProgressUseCase';
+import { GenerateRecurringTransactionsUseCase } from '../domain/usecases/GenerateRecurringTransactionsUseCase';
 import { TransactionRepository } from '../data/repositories/TransactionRepository';
 import { CategoryRepository } from '../data/repositories/CategoryRepository';
 import { LogoutModal } from '../components/LogoutModal';
 import { LogService } from '../services/LogService';
+import { MoneyText, formatMoneyValue } from '../components/MoneyText';
+import { usePrivacyMode, PrivacyManager } from '../context/PrivacyContext';
+import { BackupService } from '../services/BackupService';
 
-interface Transaction {
+interface TransactionItem {
   id: string;
   description: string;
   category: string;
   date: string;
   amount: number;
   type: 'income' | 'expense';
+  status: 'confirmada' | 'pendente';
+  isExtraIncome: boolean;
+  colorLabel?: string;
   icon: keyof typeof Feather.glyphMap;
+  color: string;
 }
 
 interface DailyBalance {
   balance: number;
   income: number;
   expense: number;
+  monthlyFixedIncome: number;
+  monthlyExtraIncome: number;
 }
 
 interface MonthlyBudget {
@@ -56,23 +66,29 @@ const formatCurrency = (value: number): string => {
   });
 };
 
+const VALID_CATEGORY_ICONS = new Set<string>([
+  'coffee', 'shopping-bag', 'shopping-cart', 'package', 'navigation', 'truck',
+  'map-pin', 'compass', 'send', 'globe', 'home', 'key', 'tool', 'tv', 'wifi',
+  'zap', 'phone', 'smartphone', 'film', 'music', 'camera', 'headphones',
+  'smile', 'feather', 'sun', 'moon', 'star', 'activity', 'heart', 'shield',
+  'umbrella', 'book', 'book-open', 'briefcase', 'award', 'clipboard',
+  'file-text', 'layers', 'dollar-sign', 'credit-card', 'tag', 'gift',
+  'percent', 'trending-up', 'trending-down', 'pie-chart', 'user', 'users',
+  'bell', 'calendar', 'clock', 'grid',
+]);
+
 const mapCategoryIcon = (iconName: string): keyof typeof Feather.glyphMap => {
-  const iconMap: Record<string, keyof typeof Feather.glyphMap> = {
-    coffee: 'coffee',
-    navigation: 'navigation',
-    smile: 'smile',
-    home: 'home',
-    activity: 'activity',
-    book: 'book',
-    'dollar-sign': 'dollar-sign',
-    briefcase: 'briefcase',
-    shopping: 'shopping-bag',
-    grid: 'grid',
-  };
-  return iconMap[iconName] ?? 'credit-card';
+  if (iconName === 'shopping') return 'shopping-bag';
+  if (VALID_CATEGORY_ICONS.has(iconName)) {
+    return iconName as keyof typeof Feather.glyphMap;
+  }
+  return 'credit-card';
 };
 
 export function HomeScreen() {
+  const { isPrivacyEnabled, togglePrivacyMode } = usePrivacyMode();
+  const formatCurrency = (value: number): string => formatMoneyValue(value, isPrivacyEnabled);
+
   const [user, setUser] = useState<UserProfile>({
     name: 'Vinicius',
     email: '',
@@ -83,6 +99,8 @@ export function HomeScreen() {
     balance: 0.0,
     income: 0.0,
     expense: 0.0,
+    monthlyFixedIncome: 0.0,
+    monthlyExtraIncome: 0.0,
   });
 
   const [monthlyBudget, setMonthlyBudget] = useState<MonthlyBudget>({
@@ -90,13 +108,14 @@ export function HomeScreen() {
     total: 0.0,
   });
 
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [transactions, setTransactions] = useState<TransactionItem[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'home' | 'list' | 'analytics' | 'settings'>('home');
 
   const authService = new AuthService();
   const balanceUseCase = new CalculateBalanceUseCase();
   const budgetProgressUseCase = new CalculateBudgetProgressUseCase();
+  const generateRecurringUseCase = new GenerateRecurringTransactionsUseCase();
   const transactionRepository = new TransactionRepository();
   const categoryRepository = new CategoryRepository();
 
@@ -128,6 +147,9 @@ export function HomeScreen() {
 
       setUser({ name: currentUser.name, email: currentUser.email });
 
+      await PrivacyManager.loadPersistedPrivacyMode();
+      await new BackupService().runDailyAutoBackupIfNeeded();
+      await generateRecurringUseCase.execute();
 
       const now = new Date();
       const currentMonth = now.getMonth() + 1;
@@ -139,10 +161,16 @@ export function HomeScreen() {
       const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).toISOString();
       const todayTotals = await transactionRepository.getTotalsByPeriod(startOfDay, endOfDay);
 
+      const startOfMonth = new Date(currentYear, currentMonth - 1, 1, 0, 0, 0).toISOString();
+      const endOfMonth = new Date(currentYear, currentMonth, 0, 23, 59, 59, 999).toISOString();
+      const monthTotals = await transactionRepository.getTotalsByPeriod(startOfMonth, endOfMonth);
+
       setDailyBalance({
         balance: balanceSummary.totalBalance,
         income: todayTotals.totalIncome,
         expense: todayTotals.totalExpense,
+        monthlyFixedIncome: monthTotals.fixedIncome,
+        monthlyExtraIncome: monthTotals.extraIncome,
       });
 
       const budgetSummary = await budgetProgressUseCase.execute(currentMonth, currentYear);
@@ -155,7 +183,7 @@ export function HomeScreen() {
       const categoryMap = new Map(categories.map((c) => [c.id, c]));
 
       const paginatedTransactions = await transactionRepository.findPaginated(1, 3);
-      const mappedTransactions: Transaction[] = paginatedTransactions.data.map((tx) => {
+      const mappedTransactions: TransactionItem[] = paginatedTransactions.data.map((tx) => {
         const cat = categoryMap.get(tx.category_id);
         const txDate = new Date(tx.date);
         const isToday = txDate.toDateString() === now.toDateString();
@@ -177,7 +205,11 @@ export function HomeScreen() {
           date: dateLabel,
           amount: tx.value,
           type: tx.type === 'receita' ? 'income' : 'expense',
+          status: tx.status ?? 'confirmada',
+          isExtraIncome: Boolean(tx.is_extra_income),
+          colorLabel: tx.color_label,
           icon: cat ? mapCategoryIcon(cat.icon) : 'credit-card',
+          color: cat?.color || '#60A5FA',
         };
       });
 
@@ -221,37 +253,57 @@ export function HomeScreen() {
     ? Math.min(Math.round((monthlyBudget.spent / monthlyBudget.total) * 100), 100)
     : 0;
 
-  const renderTransactionItem = ({ item }: ListRenderItemInfo<Transaction>) => {
+  const renderTransactionItem = ({ item }: ListRenderItemInfo<TransactionItem>) => {
     const isIncome = item.type === 'income';
 
     return (
       <TouchableOpacity
-        style={styles.transactionCard}
+        style={[
+          styles.transactionCard,
+          item.colorLabel ? { borderLeftWidth: 4, borderLeftColor: item.colorLabel } : null,
+        ]}
         activeOpacity={0.7}
         onPress={() =>
           router.push({
-            pathname: '/transaction-form',
+            pathname: '/transaction-detail',
             params: { id: item.id },
           } as unknown as Parameters<typeof router.push>[0])
         }>
-        <View style={styles.transactionIconContainer}>
-          <Feather name={item.icon} size={18} color="#60A5FA" />
+        <View
+          style={[
+            styles.transactionIconContainer,
+            { backgroundColor: `${item.color}22` },
+          ]}>
+          <Feather name={item.icon} size={18} color={item.color} />
         </View>
 
         <View style={styles.transactionDetails}>
-          <Text style={styles.transactionDescription} numberOfLines={1}>
-            {item.description}
-          </Text>
+          <View style={styles.txDescRow}>
+            <Text style={styles.transactionDescription} numberOfLines={1}>
+              {item.description}
+            </Text>
+            {item.status === 'pendente' ? (
+              <View style={styles.txPendingBadge}>
+                <Text style={styles.txPendingBadgeText}>Pendente</Text>
+              </View>
+            ) : null}
+            {item.isExtraIncome ? (
+              <View style={styles.txExtraBadge}>
+                <Text style={styles.txExtraBadgeText}>Extra</Text>
+              </View>
+            ) : null}
+          </View>
           <Text style={styles.transactionDate}>{item.date}</Text>
         </View>
 
-        <Text
+        <MoneyText
+          value={item.amount}
+          prefix={isIncome ? '+ ' : '- '}
           style={[
             styles.transactionAmount,
             isIncome ? styles.incomeText : styles.expenseText,
-          ]}>
-          {isIncome ? '+' : '-'} {formatCurrency(item.amount)}
-        </Text>
+          ]}
+        />
       </TouchableOpacity>
     );
   };
@@ -264,18 +316,31 @@ export function HomeScreen() {
           <Text style={styles.userNameText}>{user.name}</Text>
         </View>
 
-        <TouchableOpacity
-          activeOpacity={0.8}
-          style={styles.avatarWrapper}
-          onPress={() => setShowUserMenu(true)}>
-          <LinearGradient
-            colors={['#60A5FA', '#1D4ED8']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.avatarGradient}>
-            <Feather name="user" size={20} color="#FFFFFF" />
-          </LinearGradient>
-        </TouchableOpacity>
+        <View style={styles.topHeaderRightActions}>
+          <TouchableOpacity
+            activeOpacity={0.75}
+            style={styles.privacyToggleBtn}
+            onPress={togglePrivacyMode}>
+            <Feather
+              name={isPrivacyEnabled ? 'eye-off' : 'eye'}
+              size={19}
+              color="#E2E8F0"
+            />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            activeOpacity={0.8}
+            style={styles.avatarWrapper}
+            onPress={() => setShowUserMenu(true)}>
+            <LinearGradient
+              colors={['#60A5FA', '#1D4ED8']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.avatarGradient}>
+              <Feather name="user" size={20} color="#FFFFFF" />
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <TouchableOpacity
@@ -293,38 +358,57 @@ export function HomeScreen() {
               <Feather name="chevron-right" size={13} color="#BFDBFE" />
             </View>
           </View>
-          <Text style={styles.balanceValue}>
-            {formatCurrency(dailyBalance.balance)}
-          </Text>
+          <MoneyText value={dailyBalance.balance} style={styles.balanceValue} />
 
-        <View style={styles.balanceStatsRow}>
-          <View style={styles.balanceStatItem}>
-            <View style={styles.statIconBadgeIncome}>
-              <Feather name="arrow-up-right" size={14} color="#10B981" />
+          <View style={styles.balanceStatsRow}>
+            <View style={styles.balanceStatItem}>
+              <View style={styles.statIconBadgeIncome}>
+                <Feather name="arrow-up-right" size={14} color="#10B981" />
+              </View>
+              <View>
+                <Text style={styles.statLabel}>Receitas</Text>
+                <MoneyText
+                  value={dailyBalance.income}
+                  prefix="+"
+                  style={styles.statValueIncome}
+                />
+              </View>
             </View>
-            <View>
-              <Text style={styles.statLabel}>Receitas</Text>
-              <Text style={styles.statValueIncome}>
-                +{formatCurrency(dailyBalance.income)}
-              </Text>
+
+            <View style={styles.balanceDivider} />
+
+            <View style={styles.balanceStatItem}>
+              <View style={styles.statIconBadgeExpense}>
+                <Feather name="arrow-down-left" size={14} color="#EF4444" />
+              </View>
+              <View>
+                <Text style={styles.statLabel}>Despesas</Text>
+                <MoneyText
+                  value={dailyBalance.expense}
+                  prefix="-"
+                  style={styles.statValueExpense}
+                />
+              </View>
             </View>
           </View>
 
-          <View style={styles.balanceDivider} />
-
-          <View style={styles.balanceStatItem}>
-            <View style={styles.statIconBadgeExpense}>
-              <Feather name="arrow-down-left" size={14} color="#EF4444" />
+          <View style={styles.incomeBreakdownRow}>
+            <View style={styles.incomeBreakdownPill}>
+              <Text style={styles.incomeBreakdownLabel}>Receita Fixa (mês):</Text>
+              <MoneyText
+                value={dailyBalance.monthlyFixedIncome}
+                style={styles.incomeBreakdownVal}
+              />
             </View>
-            <View>
-              <Text style={styles.statLabel}>Despesas</Text>
-              <Text style={styles.statValueExpense}>
-                -{formatCurrency(dailyBalance.expense)}
-              </Text>
+            <View style={styles.incomeBreakdownPill}>
+              <Text style={styles.incomeBreakdownLabel}>Renda Extra (mês):</Text>
+              <MoneyText
+                value={dailyBalance.monthlyExtraIncome}
+                style={styles.incomeBreakdownValExtra}
+              />
             </View>
           </View>
-        </View>
-      </LinearGradient>
+        </LinearGradient>
       </TouchableOpacity>
 
       <View style={styles.budgetCard}>
@@ -376,6 +460,32 @@ export function HomeScreen() {
               : `Restante para o mês: ${formatCurrency(monthlyBudget.total - monthlyBudget.spent)}`}
           </Text>
         </View>
+      </View>
+
+      <View style={styles.quickShortcutsRow}>
+        <TouchableOpacity
+          style={styles.quickShortcutBtn}
+          activeOpacity={0.75}
+          onPress={() => router.push('/bills' as unknown as Parameters<typeof router.push>[0])}>
+          <Feather name="calendar" size={16} color="#F59E0B" />
+          <Text style={styles.quickShortcutText}>Contas Fixas</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.quickShortcutBtn}
+          activeOpacity={0.75}
+          onPress={() => router.push('/statement' as unknown as Parameters<typeof router.push>[0])}>
+          <Feather name="file-text" size={16} color="#60A5FA" />
+          <Text style={styles.quickShortcutText}>Extrato</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.quickShortcutBtn}
+          activeOpacity={0.75}
+          onPress={() => router.push('/spending-goals' as unknown as Parameters<typeof router.push>[0])}>
+          <Feather name="target" size={16} color="#10B981" />
+          <Text style={styles.quickShortcutText}>Metas</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.sectionTitleRow}>
@@ -597,6 +707,21 @@ const styles = StyleSheet.create({
   avatarWrapper: {
     borderRadius: 20,
   },
+  topHeaderRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  privacyToggleBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   avatarGradient: {
     width: 40,
     height: 40,
@@ -694,6 +819,35 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     marginTop: 1,
   },
+  incomeBreakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginTop: 10,
+  },
+  incomeBreakdownPill: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    borderRadius: 10,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  incomeBreakdownLabel: {
+    fontSize: 10,
+    color: '#BFDBFE',
+  },
+  incomeBreakdownVal: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    marginTop: 2,
+  },
+  incomeBreakdownValExtra: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#34D399',
+    marginTop: 2,
+  },
   budgetCard: {
     backgroundColor: '#1E293B',
     borderRadius: 14,
@@ -764,6 +918,28 @@ const styles = StyleSheet.create({
     color: '#F87171',
     fontWeight: '600',
   },
+  quickShortcutsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 20,
+  },
+  quickShortcutBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#334155',
+    borderRadius: 12,
+    paddingVertical: 11,
+  },
+  quickShortcutText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#E2E8F0',
+  },
   sectionTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -798,10 +974,38 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
+  txDescRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   transactionDescription: {
     fontSize: 13,
     fontWeight: '500',
     color: '#FFFFFF',
+    flexShrink: 1,
+  },
+  txPendingBadge: {
+    backgroundColor: 'rgba(245, 158, 11, 0.2)',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  txPendingBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#FBBF24',
+  },
+  txExtraBadge: {
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  txExtraBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#34D399',
   },
   transactionDate: {
     fontSize: 11,

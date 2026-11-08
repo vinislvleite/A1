@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -56,6 +56,7 @@ export function TransferScreen() {
   const [sourceAccountId, setSourceAccountId] = useState('');
   const [destAccountId, setDestAccountId] = useState('');
   const [value, setValue] = useState('');
+  const amountInputRef = useRef<TextInput>(null);
   const [description, setDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingAccounts, setIsFetchingAccounts] = useState(true);
@@ -258,9 +259,13 @@ export function TransferScreen() {
 
           <View style={styles.amountSection}>
             <Text style={styles.amountLabel}>Valor da Transferência</Text>
-            <View style={[styles.amountBox, errors.value ? styles.boxError : null]}>
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={() => amountInputRef.current?.focus()}
+              style={[styles.amountBox, errors.value ? styles.boxError : null]}>
               <Text style={styles.currencyPrefix}>R$</Text>
               <TextInput
+                ref={amountInputRef}
                 style={styles.amountInput}
                 value={value}
                 onChangeText={(text) => {
@@ -273,7 +278,7 @@ export function TransferScreen() {
                 keyboardType="numeric"
                 selectionColor="#60A5FA"
               />
-            </View>
+            </TouchableOpacity>
             {errors.value ? <Text style={styles.errorText}>{errors.value}</Text> : null}
           </View>
 
@@ -494,7 +499,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingHorizontal: 20,
     paddingVertical: 12,
   },
   navBackBtn: {
@@ -555,7 +560,7 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '700',
     color: '#FFFFFF',
-    minWidth: 160,
+    minWidth: 70,
     padding: 0,
   },
   errorText: {

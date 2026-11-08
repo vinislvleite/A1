@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -19,9 +19,10 @@ import { router, useFocusEffect } from 'expo-router';
 import { CalculateBalanceUseCase, AccountBalanceDetail } from '../domain/usecases/CalculateBalanceUseCase';
 import { AccountRepository } from '../data/repositories/AccountRepository';
 import { TransactionRepository } from '../data/repositories/TransactionRepository';
+import { formatMoneyValue } from '../components/MoneyText';
+import { usePrivacyMode } from '../context/PrivacyContext';
 
-const formatCurrency = (value: number): string =>
-  value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const formatCurrency = (value: number): string => formatMoneyValue(value);
 
 const formatCurrencyInput = (rawText: string): string => {
   const cleanDigits = rawText.replace(/\D/g, '').slice(0, 12);
@@ -70,11 +71,13 @@ const mapAccountIcon = (iconName: string): keyof typeof Feather.glyphMap => {
 };
 
 export function AccountsListScreen() {
+  usePrivacyMode();
   const [totalBalance, setTotalBalance] = useState(0);
   const [accounts, setAccounts] = useState<AccountBalanceDetail[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [adjustDetail, setAdjustDetail] = useState<AccountBalanceDetail | null>(null);
   const [adjustValue, setAdjustValue] = useState('');
+  const adjustValueInputRef = useRef<TextInput>(null);
   const [isAdjusting, setIsAdjusting] = useState(false);
 
   const balanceUseCase = new CalculateBalanceUseCase();
@@ -151,18 +154,26 @@ export function AccountsListScreen() {
 
   const renderAccountItem = ({ item }: ListRenderItemInfo<AccountBalanceDetail>) => {
     const isNegative = item.currentBalance < 0;
+    const isCreditCard = item.account.type === 'cartao_credito';
 
     return (
       <View style={styles.cardWrapper}>
         <TouchableOpacity
           style={styles.accountCard}
           activeOpacity={0.75}
-          onPress={() =>
-            router.push({
-              pathname: '/account-form',
-              params: { id: item.account.id },
-            } as unknown as Parameters<typeof router.push>[0])
-          }>
+          onPress={() => {
+            if (isCreditCard) {
+              router.push({
+                pathname: '/card-detail',
+                params: { id: item.account.id },
+              } as unknown as Parameters<typeof router.push>[0]);
+            } else {
+              router.push({
+                pathname: '/statement',
+                params: { accountId: item.account.id },
+              } as unknown as Parameters<typeof router.push>[0]);
+            }
+          }}>
           <View style={styles.accountCardHeader}>
             <View style={styles.cardHeaderLeft}>
               <View
@@ -225,7 +236,9 @@ export function AccountsListScreen() {
 
           <View style={styles.balanceRow}>
             <View>
-              <Text style={styles.balanceLabel}>Saldo atual</Text>
+              <Text style={styles.balanceLabel}>
+                {isCreditCard ? 'Saldo / Fatura' : 'Saldo atual'}
+              </Text>
               <Text
                 style={[
                   styles.accountBalanceText,
@@ -236,9 +249,16 @@ export function AccountsListScreen() {
             </View>
 
             <View style={styles.statsSummary}>
-              <Text style={styles.statsText}>
-                Inicial: {formatCurrency(item.account.initial_balance)}
-              </Text>
+              {isCreditCard && (item.account.credit_limit ?? 0) > 0 ? (
+                <Text style={styles.statsText}>
+                  Limite: {formatCurrency(item.account.credit_limit ?? 0)} • Venc. dia{' '}
+                  {item.account.due_day ?? 17}
+                </Text>
+              ) : (
+                <Text style={styles.statsText}>
+                  Inicial: {formatCurrency(item.account.initial_balance)}
+                </Text>
+              )}
             </View>
           </View>
         </TouchableOpacity>
@@ -271,6 +291,16 @@ export function AccountsListScreen() {
             }>
             <Feather name="repeat" size={14} color="#FFFFFF" />
             <Text style={styles.quickActionText}>Transferir</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.quickActionButton}
+            activeOpacity={0.8}
+            onPress={() =>
+              router.push('/statement' as unknown as Parameters<typeof router.push>[0])
+            }>
+            <Feather name="file-text" size={14} color="#FFFFFF" />
+            <Text style={styles.quickActionText}>Extrato</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -356,9 +386,13 @@ export function AccountsListScreen() {
               O saldo será atualizado sem criar uma transação comum de receita ou despesa.
             </Text>
 
-            <View style={styles.modalAmountBox}>
+            <TouchableOpacity
+              activeOpacity={1}
+              onPress={() => adjustValueInputRef.current?.focus()}
+              style={styles.modalAmountBox}>
               <Text style={styles.currencyPrefix}>R$</Text>
               <TextInput
+                ref={adjustValueInputRef}
                 style={styles.modalAmountInput}
                 value={adjustValue}
                 onChangeText={(text) => {
@@ -370,7 +404,7 @@ export function AccountsListScreen() {
                 keyboardType="numeric"
                 selectionColor="#60A5FA"
               />
-            </View>
+            </TouchableOpacity>
 
             <View style={styles.modalActions}>
               <TouchableOpacity
@@ -680,7 +714,7 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: '700',
     color: '#FFFFFF',
-    minWidth: 160,
+    minWidth: 70,
     padding: 0,
   },
   modalActions: {

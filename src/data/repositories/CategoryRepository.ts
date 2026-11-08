@@ -72,10 +72,10 @@ export class CategoryRepository {
         'SELECT id, name, description, color, icon, is_custom FROM categories ORDER BY name ASC;'
       );
 
-      const categories: Category[] = [];
+      const rawCategories: Category[] = [];
       for (let i = 0; i < result.rows.length; i++) {
         const row = result.rows.item(i) as CategoryRow;
-        categories.push({
+        rawCategories.push({
           id: row.id,
           name: row.name,
           description: row.description ?? undefined,
@@ -85,7 +85,43 @@ export class CategoryRepository {
         });
       }
 
-      return categories;
+      const byName = new Map<string, Category>();
+      const duplicatesToMerge: { duplicateId: string; primaryId: string }[] = [];
+
+      for (const cat of rawCategories) {
+        const key = cat.name.trim().toLowerCase();
+        const existing = byName.get(key);
+        if (!existing) {
+          byName.set(key, cat);
+        } else {
+          const existingIsStaticDefault = existing.id.startsWith('cat-');
+          const currentIsStaticDefault = cat.id.startsWith('cat-');
+          if (existingIsStaticDefault && !currentIsStaticDefault) {
+            duplicatesToMerge.push({ duplicateId: existing.id, primaryId: cat.id });
+            byName.set(key, cat);
+          } else {
+            duplicatesToMerge.push({ duplicateId: cat.id, primaryId: existing.id });
+          }
+        }
+      }
+
+      if (duplicatesToMerge.length > 0) {
+        for (const { duplicateId, primaryId } of duplicatesToMerge) {
+          try {
+            await this.dbManager.executeQuery(
+              'UPDATE transactions SET category_id = ? WHERE category_id = ?;',
+              [primaryId, duplicateId]
+            );
+            await this.dbManager.executeQuery(
+              'UPDATE OR IGNORE budgets SET category_id = ? WHERE category_id = ?;',
+              [primaryId, duplicateId]
+            );
+            await this.dbManager.executeQuery('DELETE FROM categories WHERE id = ?;', [duplicateId]);
+          } catch {}
+        }
+      }
+
+      return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Erro ao listar categorias: ${message}`);

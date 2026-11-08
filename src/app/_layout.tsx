@@ -6,48 +6,69 @@ if (typeof (globalThis as { setImmediate?: unknown }).setImmediate === 'undefine
 }
 
 import React, { useEffect } from 'react';
-import { DarkTheme, DefaultTheme, ThemeProvider, Stack } from 'expo-router';
+import { DarkTheme, ThemeProvider, Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
 
 import { AnimatedSplashOverlay } from '@/components/animated-icon';
 import { LogService } from '@/services/LogService';
 import { seedDemoUser } from '@/data/database/seed';
+import { PrivacyProvider } from '@/context/PrivacyContext';
 
 SplashScreen.preventAutoHideAsync();
 
+(async () => {
+  try {
+    await seedDemoUser();
+    await LogService.getInstance().purgeOldLogs(15);
+  } catch {}
+})();
+
 export default function RootLayout() {
   useEffect(() => {
-    LogService.getInstance().purgeOldLogs(15);
-    seedDemoUser().catch(() => {});
+    (async () => {
+      try {
+        await seedDemoUser();
+        await LogService.getInstance().purgeOldLogs(15);
+      } catch {}
+    })();
   }, []);
 
   return (
-    <ThemeProvider value={DarkTheme}>
-      <AnimatedSplashOverlay />
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="home" />
-        <Stack.Screen name="login" />
-        <Stack.Screen name="starter-home" />
-        <Stack.Screen name="explore" />
-        <Stack.Screen name="transaction-form" />
-        <Stack.Screen name="transactions-list" />
-        <Stack.Screen name="register" />
-        <Stack.Screen name="forgot-password" />
-        <Stack.Screen name="account" />
-        <Stack.Screen name="accounts" />
-        <Stack.Screen name="account-form" />
-        <Stack.Screen name="transfer" />
-        <Stack.Screen name="budgets" />
-        <Stack.Screen name="categories" />
-        <Stack.Screen name="transaction-detail" />
-        <Stack.Screen name="data-cleanup" />
-        <Stack.Screen name="privacy-policy" />
-        <Stack.Screen name="delete-transaction" />
-      </Stack>
-
-
-    </ThemeProvider>
+    <PrivacyProvider>
+      <ThemeProvider value={DarkTheme}>
+        <AnimatedSplashOverlay />
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="home" />
+          <Stack.Screen name="login" />
+          <Stack.Screen name="starter-home" />
+          <Stack.Screen name="explore" />
+          <Stack.Screen name="transaction-form" />
+          <Stack.Screen name="transactions-list" />
+          <Stack.Screen name="register" />
+          <Stack.Screen name="forgot-password" />
+          <Stack.Screen name="account" />
+          <Stack.Screen name="accounts" />
+          <Stack.Screen name="account-form" />
+          <Stack.Screen name="card-detail" />
+          <Stack.Screen name="statement" />
+          <Stack.Screen name="transfer" />
+          <Stack.Screen name="budgets" />
+          <Stack.Screen name="zero-based-budget" />
+          <Stack.Screen name="events" />
+          <Stack.Screen name="spending-limits" />
+          <Stack.Screen name="spending-goals" />
+          <Stack.Screen name="bills" />
+          <Stack.Screen name="settings" />
+          <Stack.Screen name="backup" />
+          <Stack.Screen name="categories" />
+          <Stack.Screen name="category-history" />
+          <Stack.Screen name="transaction-detail" />
+          <Stack.Screen name="data-cleanup" />
+          <Stack.Screen name="privacy-policy" />
+          <Stack.Screen name="delete-transaction" />
+        </Stack>
+      </ThemeProvider>
+    </PrivacyProvider>
   );
 }

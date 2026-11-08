@@ -221,14 +221,19 @@ export function DataCleanupScreen() {
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.accountChipsRow}>
+            contentContainerStyle={styles.accountChipsScroll}>
             <TouchableOpacity
               style={[
                 styles.accountChip,
                 selectedAccountId === 'all' ? styles.accountChipSelected : null,
               ]}
               onPress={() => setSelectedAccountId('all')}
-              activeOpacity={0.7}>
+              activeOpacity={0.75}>
+              <Feather
+                name="layers"
+                size={13}
+                color={selectedAccountId === 'all' ? '#FFFFFF' : '#60A5FA'}
+              />
               <Text
                 style={[
                   styles.accountChipText,
@@ -240,12 +245,20 @@ export function DataCleanupScreen() {
 
             {accounts.map((acc) => {
               const isSelected = selectedAccountId === acc.id;
+              const iconName =
+                acc.type === 'cartao_credito'
+                  ? 'credit-card'
+                  : acc.type === 'poupanca'
+                    ? 'shield'
+                    : 'briefcase';
+              const iconColor = isSelected ? '#FFFFFF' : acc.color || '#60A5FA';
               return (
                 <TouchableOpacity
                   key={acc.id}
                   style={[styles.accountChip, isSelected ? styles.accountChipSelected : null]}
                   onPress={() => setSelectedAccountId(acc.id)}
-                  activeOpacity={0.7}>
+                  activeOpacity={0.75}>
+                  <Feather name={iconName} size={13} color={iconColor} />
                   <Text
                     style={[
                       styles.accountChipText,
@@ -343,7 +356,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 18,
+    paddingHorizontal: 20,
     paddingVertical: 12,
   },
   btnBack: {
@@ -466,14 +479,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
-  accountChipsRow: {
+  accountChipsScroll: {
     gap: 8,
-    paddingRight: 10,
+    alignItems: 'center',
+    paddingVertical: 2,
   },
   accountChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    borderRadius: 8,
     backgroundColor: '#1E293B',
     borderWidth: 1,
     borderColor: '#334155',
