@@ -1,180 +1,176 @@
 # Orçamento Fácil
 
-O **Orçamento Fácil** é um aplicativo móvel de controle financeiro pessoal moderno, intuitivo e focado em privacidade. Ele funciona **100% offline**, garantindo que seus dados financeiros fiquem armazenados com total segurança exclusivamente no seu próprio dispositivo, com criptografia e isolamento individual por usuário.
+[![React Native](https://img.shields.io/badge/React_Native-0.86-20232A?style=for-the-badge&logo=react&logoColor=61DAFB)](https://reactnative.dev/)
+[![Expo](https://img.shields.io/badge/Expo-57-000020?style=for-the-badge&logo=expo&logoColor=white)](https://expo.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![SQLite](https://img.shields.io/badge/SQLite-Offline_First-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![Status](https://img.shields.io/badge/Sprint_2-100%25_Concluida-10B981?style=for-the-badge)]()
+
+O **Orçamento Fácil** é um aplicativo mobile de controle financeiro pessoal moderno, intuitivo e com foco em **privacidade e segurança**. 
+
+Ele funciona **100% offline**, armazenando todos os registros contábeis exclusivamente no próprio dispositivo por meio de um banco de dados SQLite local, com isolamento multiusuário e criptografia derivada de senha (SHA-256 + HMAC).
 
 ---
 
-## Funcionalidades da Sprint 1
+## Destaques da Aplicação
 
-- **Autenticação Segura e Biometria**
-  - Cadastro e login local com senha forte protegida por hash SHA-256 e Salt criptográfico.
-  - Acesso biométrico por impressão digital ou reconhecimento facial (FaceID / TouchID).
-  - Fluxo de recuperação de senha com perguntas de segurança locais.
+- **Design Fintech Dark Minimalista:** Interface uniforme nos tons `#0F172A`, `#1E293B`, `#2563EB` e `#60A5FA`, com componentes padronizados e microinterações fluidas.
+- **100% Offline e Privacidade Total:** Os dados financeiros permanecem restritos ao armazenamento interno do aparelho celular.
+- **Modo Cortina de Privacidade:** Ocultação e revelação instantânea de saldos e valores monetários em toda a interface com um toque.
+- **Backup Criptografado e Portabilidade:** Rotinas de backup automático diário com rotação interna e suporte à importação/exportação de backups externos em JSON seguro.
+- **Clean Architecture:** Separação estrita entre Apresentação (Screens e Components), Domínio (Entities e UseCases), Dados (Repositories e SQLite) e Serviços de Infraestrutura.
 
-- **Gestão de Contas Bancárias**
-  - Cadastro de múltiplas contas (Conta Corrente, Poupança e Cartão de Crédito).
-  - Galeria de 24 cores oficiais dos principais bancos e fintechs (Nubank, Itaú, Bradesco, Santander, Banco do Brasil, Inter, Caixa, PicPay, etc.).
-  - 28 ícones temáticos e cartão de pré-visualização interativo em tempo real.
-  - Ajuste manual e acompanhamento dinâmico de saldos.
+---
 
-- **Transações Financeiras (Receitas e Despesas)**
-  - Registro ágil de entradas e saídas com formatação monetária automática (R$ 0,00).
-  - Associação com contas bancárias e categorias.
-  - Suporte a gastos fixos recorrentes mensais.
-  - Anexo de fotos de recibos e comprovantes diretamente pela câmera ou galeria.
-  - Campo de observações e anotações descritivas.
-  - Lançamento retroativo com data e hora personalizadas.
+## Funcionalidades Entregues
 
-- **Transferências entre Contas**
-  - Movimentação direta de valores entre contas cadastradas com transações atômicas no banco de dados (débito e crédito sincronizados com garantia de rollback em caso de falha).
+### Sprint 1 (Fundação e Gestão Básica)
+- **Autenticação Segura e Biometria:** Cadastro local com hash SHA-256 e Salt, login biométrico (impressão digital / Face ID) e recuperação por perguntas de segurança.
+- **Gestão de Contas Bancárias:** Criação de contas correntes, poupanças e cartões com paleta de 24 cores oficiais de bancos e 28 ícones temáticos.
+- **Transações Financeiras:** Lançamento de receitas e despesas com formatação em tempo real (`R$ 0,00`), anexo de comprovantes da câmera/galeria, data/hora retroativa e notas.
+- **Transferências Atômicas:** Movimentações entre contas com garantia de consistência e rollback automático em caso de falha.
+- **Orçamento Mensal Básico:** Limites por categoria com barras de progresso visual (seguro, atenção >60%, alerta >90%).
+- **Extrato e Filtros Avançados:** Busca textual com debounce e filtros simultâneos por tipo, categoria, período e valores.
+- **Privacidade e Limpeza:** Expurgo de transações por período e retenção máxima de logs de até 15 dias.
 
-- **Orçamentos Mensais por Categoria**
-  - Definição de tetos de gastos para cada categoria.
-  - Barras de progresso visual com indicadores por faixa de limites:
-    - Menor que 60%: faixa regular
-    - Entre 60% e 89%: faixa de atenção
-    - A partir de 90%: alerta de teto atingido ou excedido
-  - Notificações automáticas de advertência.
-
-- **Histórico e Filtros Avançados**
-  - Listagem com paginação e busca textual instantânea com debounce.
-  - Filtros combinados por tipo (receita/despesa), categoria, intervalo de datas e faixa de valores.
-
-- **Privacidade e Gerenciamento de Dados**
-  - Banco de dados SQLite local isolado individualmente por usuário.
-  - Tela de Política de Privacidade e transparência de dados locais.
-  - Limpeza segura de dados por período e expurgo automático de logs de sistema de até 15 dias.
+### Sprint 2 (Inteligência Financeira, Planejamento e Segurança)
+- **Transações Recorrentes Automáticas (US27):** Projeção e duplicação automática de receitas e despesas mensais.
+- **Parcelamento Inteligente de Despesas (US28):** Divisão automática de compras em parcelas mensais (`1/N` até `N/N`).
+- **Gestão Integral de Fatura de Cartão (US29):** Visão de limite total, limite disponível, fatura aberta e data de fechamento/vencimento.
+- **Extrato Bancário Consolidado (US30 e US31):** Saldo progressivo acumulado linha a linha e navegação horizontal por chips de contas.
+- **Orçamentos Avançados (US32, US33, US34, US35):**
+  - **Orçamento Anual e Flexível:** Adaptação dinâmica conforme variação de receitas mensais.
+  - **Orçamento Base Zero (Zero-Based):** Alocação intencional de 100% da receita entre as categorias.
+  - **Orçamento por Eventos:** Tetos isolados para viagens, festas ou reformas sem interferir nos limites mensais das categorias.
+- **Controle de Tetos e Limites (US36 e US37):**
+  - Limite diário parametrizável por dia da semana (ex: tetos específicos para finais de semana).
+  - Teto individual por transação com alerta imediato contra gastos imprevistos.
+- **Metas de Gastos por Categoria (US38):** Tela dedicada e padronizada com cartões de indicadores, seletores temáticos de categoria com ícones e status em tempo real.
+- **Modo Cortina de Privacidade (US39):** Ocultação e revelação de valores monetários em toda a árvore de componentes via context provider global.
+- **Criptografia e Restauração Externa (US40 e US41):** Motor de backup com rotação diária (máx. 7 arquivos) e suporte à importação de arquivo externo `.json` criptografado.
+- **Central de Contas Fixas e Boletos (US42 e US43):** Calendário mensal unificado, indicadores de status (*Pendente*, *Pago*, *Vencendo*) e notificações prévias.
+- **Renda Extra e Cartão Rotativo (US44 e US45):** Identificação de rendas variáveis e simulador/calculadora de juros sobre saldo rotativo devedor.
+- **Histórico e Categorias Enriquecidas (US46, US47, US48):** Histórico evolutivo anual, descrições detalhadas e autossugestão inteligente de categorias baseada em palavras-chave.
+- **Etiquetas, Tags e Pendências (US49, US50, US51):** Tags livres, etiquetas visuais de cores e marcação de status pendente com conciliação manual.
+- **Controle Sensorial (US52):** Configuração para desativar alertas sonoros mantendo notificações visuais discretas.
 
 ---
 
 ## Tecnologias Utilizadas
 
-| Camada | Tecnologia |
-|---|---|
-| Framework | [React Native](https://reactnative.dev/) com [Expo](https://expo.dev/) (SDK 52 / React 19) |
-| Linguagem | [TypeScript](https://www.typescriptlang.org/) (modo estrito) |
-| Roteamento | [Expo Router](https://docs.expo.dev/router/introduction/) (navegação baseada em arquivos) |
-| Banco de Dados | SQLite local (`react-native-sqlite-storage`) |
-| Segurança | `expo-crypto` e `react-native-encrypted-storage` |
-| Ícones | [Feather Icons](https://feathericons.com/) via `@expo/vector-icons` |
+| Camada | Tecnologia | Descrição |
+|---|---|---|
+| **Framework** | [React Native 0.86](https://reactnative.dev/) | Desenvolvimento nativo multiplataforma |
+| **Plataforma** | [Expo 57](https://expo.dev/) | Ferramental moderno com suporte a módulos nativos |
+| **Linguagem** | [TypeScript 6.0](https://www.typescriptlang.org/) | Modo estrito (`strict: true`), tipagem estrita sem uso de `any` |
+| **Roteamento** | [Expo Router](https://docs.expo.dev/router/introduction/) | Navegação baseada em sistema de arquivos |
+| **Banco de Dados** | SQLite Local (`react-native-sqlite-storage`) | Persistência relacional nativa com transações ACID |
+| **Segurança** | `expo-crypto` e `react-native-encrypted-storage` | Derivação de chaves PBKDF2/SHA-256, HMAC e keychain |
+| **Ícones** | [Feather Icons](https://feathericons.com/) | Conjunto vetorial via `@expo/vector-icons` |
+
+---
+
+## Arquitetura do Projeto
+
+O código segue os princípios de **Clean Architecture** e **Domain-Driven Design (DDD)**:
+
+```text
+orcamentofacil/
+├── src/
+│   ├── app/                      # Rotas e navegação via Expo Router
+│   │   ├── _layout.tsx           # Layout raiz com tema escuro e StatusBar
+│   │   ├── (tabs)/               # Abas principais (Home, Transações, Orçamentos, Contas)
+│   │   ├── spending-goals.tsx    # Rota da Tela de Metas de Gastos
+│   │   ├── statement.tsx         # Rota do Extrato Bancário Consolidado
+│   │   ├── bills.tsx             # Rota de Contas Fixas e Recorrentes
+│   │   ├── card-detail.tsx       # Rota de Fatura e Detalhes do Cartão
+│   │   ├── backup.tsx            # Rota de Backup e Segurança
+│   │   └── ...
+│   ├── components/               # Componentes reutilizáveis (MoneyText, Modais, Cards)
+│   ├── context/                  # Provedores de estado global (PrivacyContext)
+│   ├── data/
+│   │   ├── database/             # Instância SQLite, DDL de esquemas e migrações versionadas
+│   │   └── repositories/         # Padrão Repository (Account, Transaction, Budget, Bill)
+│   ├── domain/
+│   │   ├── entities/             # Modelos de domínio (Transaction, Account, Budget, RecurringBill)
+│   │   └── usecases/             # Casos de uso de negócio (Balance, Invoice, Goals, etc.)
+│   ├── screens/                  # Telas com interface visual e orquestração de estados
+│   ├── services/                 # Serviços de infraestrutura (BackupService, NotificationService, Sugestões)
+│   └── utils/                    # Funções utilitárias (moeda, datas, UUID, validações)
+├── .gitignore                    # Regras de exclusão de artefatos temporários e segredos
+├── app.json                      # Configurações do Expo
+├── package.json                  # Dependências e scripts npm
+└── tsconfig.json                 # Configurações do TypeScript
+```
 
 ---
 
 ## Pré-requisitos
 
-1. **[Node.js](https://nodejs.org/)** (versão 18 ou superior)
-2. **npm** ou **yarn**
-3. **Ambiente móvel**:
-   - **Android**: [Android Studio](https://developer.android.com/studio) com um Emulador Android (AVD) configurado e as variáveis de ambiente `ANDROID_HOME` e `adb` configuradas no terminal.
-   - **Dispositivo físico**: aplicativo [Expo Go](https://expo.dev/go) instalado no celular, ou aparelho conectado via USB com depuração ativada.
+1. **[Node.js](https://nodejs.org/)** (v18.x ou superior)
+2. **npm** (incluso com o Node.js)
+3. **Ambiente Móvel:**
+   - **Android:** [Android Studio](https://developer.android.com/studio) com emulador AVD configurado e variáveis `ANDROID_HOME` e `adb` presentes no PATH.
+   - **Dispositivo Físico:** Celular Android com depuração USB habilitada ou aplicativo [Expo Go](https://expo.dev/go).
 
 ---
 
-## Como Executar o Projeto
+## Como Executar
 
 ### 1. Clonar o repositório
-
 ```bash
 git clone <URL_DO_REPOSITORIO>
 cd orcamentofacil
 ```
 
 ### 2. Instalar as dependências
-
 ```bash
 npm install
 ```
 
-### 3. Iniciar a aplicação
+### 3. Checagem de tipos TypeScript
+```bash
+npx tsc --noEmit
+```
 
-**Opção A — Emulador ou aparelho Android (recomendado)**
+### 4. Iniciar a aplicação
 
-Com o emulador aberto (ou aparelho físico conectado via USB com depuração ativada):
-
+**Modo Android Direto:**
 ```bash
 npm run android
 ```
 
-Este comando compila os binários nativos e abre o app diretamente no dispositivo.
-
-**Opção B — Servidor Expo**
-
+**Modo Metro Bundler (Expo):**
 ```bash
 npx expo start
 ```
-
-Com o Metro Bundler em execução, use as teclas do terminal para escolher o ambiente:
-
-| Tecla | Ação |
-|---|---|
-| `a` | Abre no emulador Android |
-| `i` | Abre no simulador iOS (somente macOS) |
-| `w` | Abre a versão Web |
-| — | Ou escaneie o QR Code com o app Expo Go |
+No terminal do Metro, pressione:
+- `a` para abrir no Emulador Android
+- `w` para abrir a versão Web
+- `r` para recarregar a aplicação
 
 ---
 
-## Atalhos do Metro Bundler
+## Backlog Completo do Produto
 
-| Tecla | Ação |
-|---|---|
-| `r` | Recarrega o aplicativo |
-| `m` | Abre o Menu de Desenvolvedor |
-| `j` | Abre o DevTools do Chrome |
-| `c` | Limpa a tela do terminal |
+Histórias de usuário organizadas em 3 sprints equilibradas de 26 histórias cada (78 histórias no total).
 
----
-
-## Estrutura de Pastas
-
-```text
-orcamentofacil/
-├── assets/                  # Ícones, imagens de splash e recursos visuais
-├── src/
-│   ├── app/                 # Rotas e páginas do Expo Router
-│   │   ├── _layout.tsx      # Layout raiz com tema e provedores de navegação
-│   │   ├── accounts.tsx     # Rota de listagem de contas
-│   │   ├── budgets.tsx      # Rota de orçamentos mensais
-│   │   ├── transfer.tsx     # Rota de transferências
-│   │   └── ...
-│   ├── components/          # Componentes reutilizáveis (inputs, botões, modais)
-│   ├── constants/           # Constantes de tema, cores e fontes
-│   ├── data/
-│   │   ├── database/        # Inicialização do SQLite, DDL de esquemas e migrações
-│   │   └── repositories/    # Repositórios de acesso a dados (CRUD de contas, transações, etc.)
-│   ├── domain/
-│   │   ├── entities/        # Modelos de domínio (User, Account, Transaction, Budget)
-│   │   └── usecases/        # Regras contábeis e casos de uso de cálculos
-│   ├── hooks/                # Custom hooks de tema e estados
-│   ├── screens/              # Telas da aplicação com interfaces e lógica
-│   └── services/             # Serviços de autenticação, biometria, logs e notificações
-├── app.json                  # Configurações do Expo e metadados do app
-├── package.json               # Dependências e scripts de execução
-└── tsconfig.json               # Configuração estrita do TypeScript
-```
-
----
-
-## Backlog do Produto
-
-Histórias de usuário no formato "Como [usuário], quero [ação], para que [benefício]", organizadas em 3 sprints de tamanho equilibrado (26 histórias cada), cobrindo a totalidade dos requisitos funcionais e não funcionais do projeto.
-
-### Sprint 1
+### Sprint 1 (Concluída)
 
 | # | História |
 |---|---|
 | US01 | Fazer login com e-mail/usuário e senha, para acessar os dados financeiros com segurança. |
 | US02 | Ativar a autenticação por impressão digital para abrir o aplicativo, para adicionar uma camada extra de segurança. |
-| US03 | Registrar uma transação informando valor, data, descrição, categoria e tipo, para manter o controle do que entra e sai do dinheiro. |
+| US03 | Registrar uma transação informando valor, data, descrição, categoria e tipo, para manter o controle financeiro. |
 | US04 | Visualizar a lista de transações ordenadas por data decrescente, com rolagem infinita. |
 | US05 | Editar ou excluir uma transação existente, com diálogo de confirmação antes da exclusão. |
 | US06 | Visualizar o saldo atual, atualizado automaticamente a cada alteração. |
 | US07 | Definir um orçamento mensal por categoria e visualizar um indicador de progresso. |
-| US08 | Cadastrar múltiplas contas (corrente, poupança, cartão de crédito) e associar cada transação a uma conta específica. |
+| US08 | Cadastrar múltiplas contas (corrente, poupança, cartão de crédito) e associar transações a contas específicas. |
 | US09 | Visualizar o saldo total combinado das contas, além do saldo individual de cada uma. |
 | US10 | Informar um saldo inicial ao criar uma conta. |
 | US11 | Personalizar as categorias de transação, adicionando novas e renomeando as existentes. |
-| US12 | Visualizar um resumo diário na tela inicial, com saldo do dia, transações recentes e orçamento restante do mês. |
+| US12 | Visualizar um resumo diário na tela inicial, com saldo do dia, transações recentes e orçamento restante. |
 | US13 | Buscar transações por descrição, categoria ou período de datas. |
 | US14 | Aplicar um filtro avançado combinando categoria, tipo, valor mínimo, valor máximo e período. |
 | US15 | Classificar as transações por valor, data ou categoria. |
@@ -190,7 +186,9 @@ Histórias de usuário no formato "Como [usuário], quero [ação], para que [be
 | US25 | Apagar transações de um período selecionado, com confirmação dupla. |
 | US26 | Acessar a política de privacidade do aplicativo. |
 
-### Sprint 2
+---
+
+### Sprint 2 (Concluída)
 
 | # | História |
 |---|---|
@@ -208,7 +206,7 @@ Histórias de usuário no formato "Como [usuário], quero [ação], para que [be
 | US38 | Definir uma meta de gastos para uma categoria específica. |
 | US39 | Ativar um modo de tela de segurança que oculte os valores monetários. |
 | US40 | Realizar backup automático diário dos dados em arquivo criptografado. |
-| US41 | Restaurar um backup previamente realizado. |
+| US41 | Restaurar um backup previamente realizado (interno ou arquivo externo .json). |
 | US42 | Receber lembretes para pagamento de contas fixas, antes do vencimento. |
 | US43 | Visualizar uma lista de contas fixas a pagar, ordenada por vencimento. |
 | US44 | Registrar uma fonte de renda extra, separada das receitas fixas. |
@@ -221,7 +219,9 @@ Histórias de usuário no formato "Como [usuário], quero [ação], para que [be
 | US51 | Marcar uma transação como "pendente", com status de confirmação manual. |
 | US52 | Desativar o som das notificações financeiras. |
 
-### Sprint 3
+---
+
+### Sprint 3 (Planejada)
 
 | # | História |
 |---|---|
@@ -252,18 +252,17 @@ Histórias de usuário no formato "Como [usuário], quero [ação], para que [be
 | US77 | Adicionar um observador ao orçamento, com acesso somente leitura. |
 | US78 | Registrar transações em outras moedas, com conversão automática pela cotação do dia. |
 
-### Requisitos Não Funcionais
+---
 
-Aplicam-se a todas as sprints, por serem critérios de qualidade transversais:
+## Requisitos Não Funcionais
 
-- Desenvolvimento exclusivo para Android, compatível a partir da versão 6.0 (Marshmallow).
-- Criptografia de todos os dados armazenados localmente; comunicação externa exclusivamente via HTTPS.
-- Interface com esquema de cores neutro, em tons de azul e cinza.
-- Carregamento inicial inferior a 1,5 segundo; listagem e filtragem inferiores a 300 milissegundos, mesmo com até 10.000 transações.
-- Uso do `AppState` para pausar processamento em segundo plano e reduzir o consumo de bateria.
-- Código estruturado em Clean Architecture, com separação entre dados, regras de negócio e apresentação.
-- Logs limitados a erros críticos, sem dados sensíveis, com retenção máxima de 15 dias.
-- Funcionamento completo das funcionalidades principais sem conexão com a internet.
+- **Compatibilidade Android:** Desenvolvido com foco em Android (API 23+ / Android 6.0 Marshmallow ou superior).
+- **Criptografia Local e Isolamento:** Todos os dados persistidos em SQLite com hash SHA-256 e salting; comunicação externa restrita a HTTPS.
+- **Identidade Visual:** Design system neutro fintech em tons escuros (`#0F172A`, `#1E293B`, `#2563EB`).
+- **Desempenho:** Carregamento inicial inferior a 1,5s; filtragem e listagem abaixo de 300ms com milhares de registros.
+- **Eficiência Energética:** Gerenciamento via `AppState` para suspender processos em segundo plano e preservar bateria.
+- **Clean Architecture:** Desacoplamento estrito entre apresentação, casos de uso, repositórios e banco de dados.
+- **Logs Não Sensíveis:** Registro restrito a erros de sistema, sem inclusão de dados financeiros pessoais e retenção máxima de 15 dias.
 
 ---
 
