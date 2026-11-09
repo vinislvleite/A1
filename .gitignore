@@ -57,12 +57,4 @@ example
 
 # tests & coverage
 coverage/
-test/
-tests/
-__tests__/
-*.test.*
-*.spec.*
-jest.config.*
-jest.setup.*
-docs/
 
