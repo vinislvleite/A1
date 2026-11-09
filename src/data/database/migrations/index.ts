@@ -51,14 +51,12 @@ export async function runMigrations(db: SQLiteDatabase): Promise<void> {
   let latestApplied = pragmaVersion;
 
   for (const migration of migrations) {
-    if (!appliedVersions.has(migration.version) || migration.version > pragmaVersion) {
+    if (!appliedVersions.has(migration.version)) {
       await migration.up(db);
-      if (!appliedVersions.has(migration.version)) {
-        await db.executeSql(
-          'INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?);',
-          [migration.version, new Date().toISOString()]
-        );
-      }
+      await db.executeSql(
+        'INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?, ?);',
+        [migration.version, new Date().toISOString()]
+      );
       await db.executeSql(`PRAGMA user_version = ${migration.version};`);
       if (migration.version > latestApplied) {
         latestApplied = migration.version;

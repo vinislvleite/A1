@@ -17,13 +17,6 @@ import { DialogProvider } from '@/components/dialogs';
 
 SplashScreen.preventAutoHideAsync();
 
-(async () => {
-  try {
-    await seedDemoUser();
-    await LogService.getInstance().purgeOldLogs(15);
-  } catch {}
-})();
-
 export default function RootLayout() {
   useEffect(() => {
     (async () => {

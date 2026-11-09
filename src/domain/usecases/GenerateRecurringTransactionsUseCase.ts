@@ -54,6 +54,7 @@ export function listElapsedYearMonths(startDateIso: string, targetDateIso: strin
 }
 
 export class GenerateRecurringTransactionsUseCase {
+  private static inFlightPromise: Promise<{ generatedCount: number; generatedTransactions: Transaction[] }> | null = null;
   private transactionRepository: TransactionRepository;
 
   constructor(transactionRepository: TransactionRepository = new TransactionRepository()) {
@@ -63,10 +64,47 @@ export class GenerateRecurringTransactionsUseCase {
   public async execute(
     referenceDateIso?: string
   ): Promise<{ generatedCount: number; generatedTransactions: Transaction[] }> {
+    if (GenerateRecurringTransactionsUseCase.inFlightPromise) {
+      return GenerateRecurringTransactionsUseCase.inFlightPromise;
+    }
+
+    GenerateRecurringTransactionsUseCase.inFlightPromise = this.executeInternal(referenceDateIso).finally(() => {
+      GenerateRecurringTransactionsUseCase.inFlightPromise = null;
+    });
+
+    return GenerateRecurringTransactionsUseCase.inFlightPromise;
+  }
+
+  private async executeInternal(
+    referenceDateIso?: string
+  ): Promise<{ generatedCount: number; generatedTransactions: Transaction[] }> {
     const refIso = referenceDateIso ?? new Date().toISOString();
     const refDay = refIso.substring(0, 10);
 
-    const allTransactions = await this.transactionRepository.findAll();
+    let allTransactions = await this.transactionRepository.findAll();
+
+    const seenRecurringKeys = new Set<string>();
+    const duplicateIdsToDelete: string[] = [];
+    for (const tx of allTransactions) {
+      if (tx.is_recurring && tx.recurrence_parent_id) {
+        const ym = tx.date.substring(0, 7);
+        const key = `${tx.recurrence_parent_id}:${ym}`;
+        if (seenRecurringKeys.has(key)) {
+          duplicateIdsToDelete.push(tx.id);
+        } else {
+          seenRecurringKeys.add(key);
+        }
+      }
+    }
+
+    if (duplicateIdsToDelete.length > 0) {
+      for (const dupId of duplicateIdsToDelete) {
+        try {
+          await this.transactionRepository.delete(dupId);
+        } catch {}
+      }
+      allTransactions = allTransactions.filter((tx) => !duplicateIdsToDelete.includes(tx.id));
+    }
 
     const existingPeriodKeys = new Set<string>();
     for (const tx of allTransactions) {
@@ -91,6 +129,16 @@ export class GenerateRecurringTransactionsUseCase {
       for (const slot of slots) {
         const periodKey = `${template.id}:${slot.yearMonth}`;
         if (existingPeriodKeys.has(periodKey)) {
+          continue;
+        }
+
+        const alreadyExists = allTransactions.some(
+          (t) =>
+            (t.recurrence_parent_id === template.id || t.id === template.id) &&
+            t.date.substring(0, 7) === slot.yearMonth
+        );
+        if (alreadyExists) {
+          existingPeriodKeys.add(periodKey);
           continue;
         }
 
@@ -121,6 +169,7 @@ export class GenerateRecurringTransactionsUseCase {
           status: 'confirmada',
         });
 
+        allTransactions.push(created);
         generatedTransactions.push(created);
       }
     }

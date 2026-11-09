@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -122,6 +122,7 @@ export function HomeScreen() {
 
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const isLoadingDashboardRef = useRef(false);
 
   const handleLogout = () => {
     setShowLogoutModal(true);
@@ -139,6 +140,10 @@ export function HomeScreen() {
   };
 
   const loadDashboardData = useCallback(async () => {
+    if (isLoadingDashboardRef.current) {
+      return;
+    }
+    isLoadingDashboardRef.current = true;
     try {
       const currentUser = await authService.getCurrentUser();
       if (!currentUser) {
@@ -222,12 +227,10 @@ export function HomeScreen() {
       setTransactions(mappedTransactions);
     } catch {
       return;
+    } finally {
+      isLoadingDashboardRef.current = false;
     }
   }, []);
-
-  useEffect(() => {
-    loadDashboardData();
-  }, [loadDashboardData]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
