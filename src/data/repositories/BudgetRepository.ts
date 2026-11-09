@@ -147,8 +147,24 @@ export class BudgetRepository {
 
       return budgets;
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Erro ao listar orçamentos do mês [${month}/${year}]: ${message}`);
+      try {
+        const fallbackRes = await this.dbManager.executeQuery(
+          `SELECT id, category_id, month, year, limit_value, period_type
+           FROM budgets
+           WHERE month = ? AND year = ? AND period_type = ?
+           ORDER BY limit_value DESC;`,
+          [month, year, 'mensal']
+        );
+        const budgets: Budget[] = [];
+        for (let i = 0; i < fallbackRes.rows.length; i++) {
+          const row = fallbackRes.rows.item(i) as BudgetRow;
+          budgets.push(this.mapBudgetRow(row));
+        }
+        return budgets;
+      } catch {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Erro ao listar orçamentos do mês [${month}/${year}]: ${message}`);
+      }
     }
   }
 
@@ -170,8 +186,24 @@ export class BudgetRepository {
 
       return budgets;
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Erro ao listar orçamentos anuais de [${year}]: ${message}`);
+      try {
+        const fallbackRes = await this.dbManager.executeQuery(
+          `SELECT id, category_id, month, year, limit_value, period_type
+           FROM budgets
+           WHERE year = ? AND period_type = ?
+           ORDER BY limit_value DESC;`,
+          [year, 'anual']
+        );
+        const budgets: Budget[] = [];
+        for (let i = 0; i < fallbackRes.rows.length; i++) {
+          const row = fallbackRes.rows.item(i) as BudgetRow;
+          budgets.push(this.mapBudgetRow(row));
+        }
+        return budgets;
+      } catch {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Erro ao listar orçamentos anuais de [${year}]: ${message}`);
+      }
     }
   }
 
@@ -468,20 +500,24 @@ export class BudgetRepository {
   }
 
   public async findAllCategorySpendingGoals(): Promise<CategorySpendingGoal[]> {
-    const res = await this.dbManager.executeQuery(
-      'SELECT id, category_id, max_monthly_value, created_at FROM category_spending_goals;'
-    );
-    const list: CategorySpendingGoal[] = [];
-    for (let i = 0; i < res.rows.length; i++) {
-      const r = res.rows.item(i) as CategorySpendingGoal;
-      list.push({
-        id: r.id,
-        category_id: r.category_id,
-        max_monthly_value: Number(r.max_monthly_value),
-        created_at: r.created_at,
-      });
+    try {
+      const res = await this.dbManager.executeQuery(
+        'SELECT id, category_id, max_monthly_value, created_at FROM category_spending_goals;'
+      );
+      const list: CategorySpendingGoal[] = [];
+      for (let i = 0; i < res.rows.length; i++) {
+        const r = res.rows.item(i) as CategorySpendingGoal;
+        list.push({
+          id: r.id,
+          category_id: r.category_id,
+          max_monthly_value: Number(r.max_monthly_value),
+          created_at: r.created_at,
+        });
+      }
+      return list;
+    } catch {
+      return [];
     }
-    return list;
   }
 
   public async deleteCategorySpendingGoal(id: string): Promise<void> {

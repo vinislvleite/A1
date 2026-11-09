@@ -42,7 +42,9 @@ async function seedDemoUserInternal(): Promise<boolean> {
   const accountRepository = new AccountRepository(dbManager);
   const existingAccounts = await accountRepository.findAll();
   if (existingAccounts.length > 0) {
-    await dbManager.setActiveUser(previousUser);
+    if (previousUser) {
+      await dbManager.setActiveUser(previousUser);
+    }
     return false;
   }
 
@@ -513,7 +515,9 @@ async function seedDemoUserInternal(): Promise<boolean> {
     current_value: 850.0,
   });
 
-  await dbManager.setActiveUser(previousUser);
+  if (previousUser) {
+    await dbManager.setActiveUser(previousUser);
+  }
   return true;
 }
 

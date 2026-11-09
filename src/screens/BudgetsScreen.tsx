@@ -31,6 +31,7 @@ import { formatMoneyValue } from '../components/MoneyText';
 import { ConfirmModal } from '../components/ConfirmModal';
 import { usePrivacyMode } from '../context/PrivacyContext';
 import { MONTH_NAMES } from '../utils/date';
+import { AuthService } from '../services/AuthService';
 
 const formatCurrency = (value: number): string => formatMoneyValue(value);
 
@@ -118,6 +119,7 @@ export function BudgetsScreen() {
   const loadData = useCallback(async () => {
     try {
       setIsLoading(true);
+      await new AuthService().getCurrentUser();
       const [res, goalsList] = await Promise.all([
         activeTab === 'anual'
           ? budgetUseCase.executeAnnual(currentYear, true)

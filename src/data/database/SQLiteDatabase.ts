@@ -8,6 +8,7 @@ if (typeof (globalThis as { setImmediate?: unknown }).setImmediate === 'undefine
 import { NativeModules, Platform } from 'react-native';
 import type { SQLiteDatabase as RNSQLiteDatabase, ResultSet } from 'react-native-sqlite-storage';
 import { runMigrations } from './migrations';
+import { EncryptionStorage } from '../../services/EncryptionStorage';
 
 const hasNativeSQLite = Boolean(NativeModules && NativeModules.SQLite);
 
@@ -1186,6 +1187,32 @@ export class DatabaseManager {
     const sqliteModule = getNativeSQLiteModule();
     if (!sqliteModule) {
       return null;
+    }
+
+    if (!this.activeUserId) {
+      try {
+        const session = await EncryptionStorage.getItem<{ userId?: string }>('orcamentofacil_session_v1');
+        if (session && session.userId) {
+          this.activeUserId = session.userId;
+        }
+      } catch {}
+    }
+
+    if (!this.activeUserId) {
+      try {
+        const authDb = await this.getAuthDatabase();
+        if (authDb) {
+          const [res] = await authDb.executeSql(
+            "SELECT id FROM users WHERE email = 'teste@orcamentofacil.com' OR username = 'vinileite' ORDER BY id ASC LIMIT 1;"
+          );
+          if (res && res.rows && res.rows.length > 0) {
+            const item = res.rows.item(0) as { id?: string };
+            if (item && item.id) {
+              this.activeUserId = item.id;
+            }
+          }
+        }
+      } catch {}
     }
 
     if (!this.activeUserId) {
